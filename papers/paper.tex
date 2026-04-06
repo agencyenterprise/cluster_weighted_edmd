@@ -48,7 +48,7 @@
 \maketitle
 
 \begin{abstract}
-We present a Bayesian mixture-model framework for partitioning the phase space of a dynamical system $\dot{x}=f(x)$ into regions within which a simple local model accurately predicts the vector field. Unlike standard Gaussian mixture models, which cluster points by geometric proximity alone, our framework clusters points by the \emph{joint likelihood of position and vector-field observation}: a region is favoured only if both the points fall there \emph{and} a local dynamical model predicts $f(x)$ accurately there. The framework is parameterization-agnostic: the local model inside each cluster can be a Taylor expansion evaluated from an analytic Jacobian, a least-squares affine fit, or a full local Extended Dynamic Mode Decomposition (EDMD) operator in a lifted polynomial space. We derive the EM updates for all three variants, show they share a common E-step and differ only in the M-step, and present empirical results on two canonical dynamical systems---the Lorenz attractor and the damped pendulum. On Lorenz, global EDMD with a degree-2 polynomial lift is exact, so no clustering method can improve upon it; partitioning adds parameters without benefit. On the pendulum, where the nonlinearity $\sin(\theta)$ has no finite polynomial representation, the framework delivers an order-of-magnitude parameter-efficiency gain over global EDMD, and reveals a non-trivial crossover: the LS-refit variant dominates at coarse~$N$ while the analytic-Jacobian variant dominates at fine~$N$. These findings characterize precisely when piecewise-local modeling helps, when it does not, and which parameterization to select given the available information about the system.
+We formulate the piecewise linearization of a dynamical system $\dot{x}=f(x)$ as a Cluster-Weighted Model (CWM)---a mixture model over the \emph{joint} density of state and vector-field observation, $p(x,f(x))=\sum_k\pi_k\,p(x|k)\,p(f|x,k)$. Unlike standard GMM (which clusters by geometry alone) or mixture-of-experts (which models the conditional $p(f|x)$ without clustering inputs), the CWM formulation assigns points to clusters based on both geometric proximity and local-model prediction quality. We extend the CWM framework---previously developed for statistical clustering and classification---to dynamical systems, with three local-model parameterizations: a physics-constrained Taylor variant using the analytic Jacobian (zero free local parameters), a data-driven least-squares affine fit, and a Koopman-theoretic variant where each cluster carries a continuous-time EDMD generator in a lifted polynomial space. We derive the EM updates for all three variants, show they share a common E-step and differ only in the M-step, and present empirical results on two canonical dynamical systems---the Lorenz attractor and the damped pendulum. On Lorenz, global EDMD with a degree-2 polynomial lift is exact, so no clustering method can improve upon it; partitioning adds parameters without benefit. On the pendulum, where the nonlinearity $\sin(\theta)$ has no finite polynomial representation, the framework delivers an order-of-magnitude parameter-efficiency gain over global EDMD, and reveals a non-trivial crossover: the LS-refit variant dominates at coarse~$N$ while the analytic-Jacobian variant dominates at fine~$N$. These findings characterize precisely when piecewise-local modeling helps, when it does not, and which parameterization to select given the available information about the system.
 \end{abstract}
 
 \section{Introduction}
@@ -63,13 +63,23 @@ In many applications---reduced-order modeling, control design, stability analysi
 
 The natural remedy is \textbf{piecewise linearization}: partition the region of interest $V\subset\R^d$ into $N$ subregions $V_1,\dots,V_N$ with centers $c_k\in V_k$ and local models $L_k(x)=A_k(x-c_k)+b_k$. Two questions arise: \emph{where should the $c_k$ be placed?}, and \emph{how should phase space be partitioned into the $V_k$?} A naive answer: cluster $\{x_i\}$ geometrically (k-means, GMM) and evaluate the Jacobian at each centroid. But this ignores the dynamics. A region with high sample density but high \emph{curvature} of $f$ is a bad choice of subregion. \emph{The partition should be chosen not by geometric proximity but by \textbf{linearization quality}.} Centers should sit where $f$ is locally flat; boundaries should fall where $f$ changes character.
 
-\subsection{A Generative Framing}
+\subsection{A Generative Framing via Cluster-Weighted Models}
 
-We cast this as a mixture model over joint observations $(x,f(x))$. The joint likelihood of a pair $(x_i,f(x_i))$ under component $k$ factorizes:
+The natural probabilistic framework for jointly clustering inputs and fitting local regressions is the \textbf{Cluster-Weighted Model} (CWM), introduced by Gershenfeld~\cite{gershenfeld1997} and formalized statistically by Ingrassia et al.~\cite{ingrassia2012,ingrassia2014}. A CWM models the joint density of an input-output pair $(x,y)$ as
+\begin{equation}
+  p(x,y) = \sum_{k=1}^N \pi_k\, p(x\mid z\!=\!k)\, p(y\mid x,z\!=\!k),
+\end{equation}
+factoring each component into a \emph{marginal on inputs} and a \emph{conditional regression on outputs}. In the Linear Gaussian CWM~\cite{ingrassia2012}, both are Gaussian: $p(x\mid z\!=\!k)=\mathcal{N}(x;\mu_k,\Sv_k)$ and $p(y\mid x,z\!=\!k)=\mathcal{N}(y;\beta_{k,0}+B_k x,\,\Gamma_k)$.
+
+We recognize that the piecewise-linearization problem is naturally a CWM with $x=$ state vector and $y=f(x)=$ vector-field observation:
 \begin{equation}
   p(x_i, f(x_i) \mid z_i = k) \;=\; \underbrace{\mathcal{N}(x_i;\, c_k, \Sv_k)}_{\text{proximity}} \;\cdot\; \underbrace{\mathcal{N}(f(x_i) - L_k(x_i);\, 0,\, \sigma^2 I)}_{\text{residual}}.
 \end{equation}
-The proximity factor is the standard GMM term. The \emph{residual factor} is novel: it prefers to assign $x_i$ to the component whose local model correctly predicts $f(x_i)$. A point is assigned to component $k$ only if both factors agree. Writing $\varepsilon_k(x)=f(x)-L_k(x)$:
+The proximity factor models where each cluster sits in phase space. The residual factor models how well the local dynamical model $L_k$ predicts $f(x_i)$---a point is assigned to component $k$ only if both factors agree. This joint criterion makes the clustering dynamics-aware: boundaries follow linearizability contours rather than density contours.
+
+While the joint-likelihood structure is inherited from CWM, the specific local-model parameterizations we propose---particularly the physics-constrained Taylor variant and the Koopman-theoretic EDMD variant---are novel and have no precedent in the CWM literature, which has focused on statistical classification and regression rather than dynamical systems.
+
+Writing $\varepsilon_k(x)=f(x)-L_k(x)$:
 \begin{equation}
   \log p(x_i, f(x_i)\mid z_i=k) = \text{const} - \tfrac{1}{2}(x_i-c_k)^\top \Sv_k^{-1}(x_i-c_k) - \|\varepsilon_k(x_i)\|^2 / (2\sigma^2).
 \end{equation}
@@ -78,10 +88,10 @@ The hyperparameter $\sigma^2$ sets the scale at which residuals matter: $\sigma^
 \subsection{Contributions}
 
 \begin{enumerate}[leftmargin=*,itemsep=2pt]
-  \item A \textbf{unified framework} in which the local-model parameterization (analytic Taylor, LS-fit affine, or local EDMD in a lifted space) is modular: the E-step is identical across variants, which differ only in the M-step.
-  \item A \textbf{principled Bayesian treatment} with Normal-Inverse-Wishart (NIW) conjugate priors on $(c_k,\Sv_k)$, giving closed-form marginal likelihoods for cluster-count selection and monotone-ELBO convergence for two of the three variants.
-  \item \textbf{Empirical characterization of when each variant wins}, including the non-trivial finding that the LS-fit variant dominates analytic Jacobians at \emph{coarse} partitions, while the analytic variant dominates at \emph{fine} partitions.
-  \item A \textbf{fair comparison to global EDMD}, showing that for polynomial dynamical systems piecewise local models cannot improve on the right global lifting, but for non-polynomial systems piecewise local EDMD achieves an order-of-magnitude parameter-efficiency gain.
+  \item We identify piecewise linearization of vector fields as a \textbf{Cluster-Weighted Model}~\cite{gershenfeld1997,ingrassia2012}---connecting the dynamical-systems problem to a well-studied statistical framework---and extend it with domain-specific local-model parameterizations.
+  \item A \textbf{physics-constrained variant} (Taylor-analytic) where the local regression parameters are set by the analytic Jacobian $\Jv(c_k)$, yielding zero free local-model parameters per cluster. This constrained CWM has no precedent in the CWM literature.
+  \item A \textbf{Koopman-theoretic variant} (local EDMD) where each cluster carries a continuous-time Koopman generator in a lifted polynomial space, replacing the affine local model with a richer dynamical surrogate.
+  \item \textbf{Empirical characterization} on Lorenz and pendulum benchmarks, showing when piecewise methods help (non-polynomial systems, $10$--$20\times$ parameter savings) and when they do not (polynomial systems where global EDMD is exact), and revealing a crossover where LS-fit dominates at coarse~$N$ while the analytic variant dominates at fine~$N$.
 \end{enumerate}
 
 \section{Background}
@@ -416,17 +426,17 @@ The framework's main practical selling point is parameter efficiency on non-poly
 
 \section{Related Work}
 
-\textbf{Mixture of Experts} (Jacobs, Jordan, Nowlan, Hinton 1991; Jordan \& Jacobs 1994): local experts gated by position. Most MoE formulations are conditional; ours is joint-generative, enabling Bayesian model selection over $N$.
+\textbf{Cluster-Weighted Models} (Gershenfeld 1997~\cite{gershenfeld1997}; Gershenfeld, Schoner, Metois 1999~\cite{gershenfeld1999nature}; Ingrassia, Minotti, Vittadini 2012~\cite{ingrassia2012}; Ingrassia, Minotti, Punzo 2014~\cite{ingrassia2014}): our generative model is a CWM---the joint density $p(x,y)=\sum_k\pi_k\,p(x|k)\,p(y|x,k)$ with Gaussian components. The Linear Gaussian CWM~\cite{ingrassia2012} is mathematically equivalent to our Variant~B (Taylor-LS) when $y=f(x)$. Punzo~\cite{punzo2014poly} extends CWM to polynomial local models, related to our local-EDMD variant. The CWM literature has focused on statistical clustering and classification (tourism, institutional evaluation); we extend it to dynamical systems with physics-constrained parameterizations and Koopman-theoretic local models.
 
-\textbf{Piecewise Affine System Identification} (Bemporad, Ferrari-Trecate, Muselli 2001; Ferrari-Trecate et al.\ 2003; Paoletti et al.\ 2007): identifies piecewise affine dynamics via k-means clustering and local regression. We generalize with soft EM-based clustering and Bayesian priors.
+\textbf{Mixture of Experts} (Jacobs, Jordan, Nowlan, Hinton 1991~\cite{jacobs1991adaptive}; Jordan \& Jacobs 1994~\cite{jordan1994hierarchical}): MoE models the conditional $p(y|x)=\sum_k g_k(x)p(y|x,k)$ where gating $g_k(x)$ depends on $x$ alone. CWM differs by also modeling $p(x|k)$, which regularizes clustering and enables Bayesian model selection.
 
-\textbf{Switching Linear Dynamical Systems} (Fox, Sudderth, Jordan, Willsky 2011; Ghahramani \& Hinton 2000): regime-switching temporal models. We share the multiple-local-regimes premise but focus on phase-space rather than temporal segmentation.
+\textbf{Piecewise Affine System Identification} (Ferrari-Trecate et al.\ 2003~\cite{ferrari2003clustering}; Paoletti et al.\ 2007~\cite{paoletti2007identification}): two-stage approaches that cluster first (hard assignment, geometry-only) then fit local models. Our CWM-based approach performs clustering and regression simultaneously via EM with soft assignments, and the residual factor influences cluster formation---an advantage when geometric proximity does not imply linearizability.
 
-\textbf{EDMD and Koopman modeling} (Williams, Kevrekidis, Rowley 2015; Klus et al.\ 2020; Brunton, Budi{\v{s}}i{\'c}, Kaiser, Kutz 2022): fits Koopman operators globally. Our local-EDMD can be seen as cluster-wise EDMD with soft assignments.
+\textbf{Switching Linear Dynamical Systems} (Fox et al.\ 2011~\cite{fox2011bayesian}; Ghahramani \& Hinton 2000~\cite{ghahramani2000variational}): regime-switching temporal models with HMM structure. We share the multiple-local-regimes premise but partition phase space rather than time.
 
-\textbf{Cluster-based reduced-order modeling} (Kaiser et al.\ 2014): cluster phase space, build ROMs per cluster. We share the philosophy but use a joint likelihood aligning clustering with model fidelity.
+\textbf{EDMD and Koopman modeling} (Williams et al.\ 2015~\cite{williams2015data}; Klus et al.\ 2020~\cite{klus2020data}; Brunton et al.\ 2022~\cite{brunton2022modern}): fits Koopman operators globally. Our local-EDMD variant is cluster-wise EDMD with soft CWM-based assignments.
 
-Specific contributions: (i) joint-likelihood clustering criterion; (ii) unified modular framework for local-model parameterization; (iii) NIW-conjugate Bayesian model selection; (iv) empirical characterization of the parameterization trade-off.
+Our specific contributions beyond existing CWM: (i) a physics-constrained variant with analytic Jacobian (zero free local parameters); (ii) a Koopman-theoretic variant with lifted-space generators; (iii) first application of CWM to dynamical-systems phase-space partitioning; (iv) empirical characterization of the parameterization trade-off including the analytic-vs-LS crossover.
 
 \section{Conclusion and Future Work}
 
@@ -436,7 +446,7 @@ Three practically-important findings: (i) on globally-polynomial systems, partit
 
 \paragraph{Future Work.} (i) Stronger test systems: chaotic driven pendulum, coupled oscillators, neuronal models, stick-slip friction---settings with multiple distinct Koopman-invariant subspaces. (ii) Control-theoretic extensions: EDMDc per cluster. (iii) Automatic per-cluster lift degree selection. (iv) Rigorous ELBO handling for pruning events. (v) Non-isotropic residual covariance $\Sv_k^{\mathrm{res}}$.
 
-\paragraph{Code and data.} Implementations live in \texttt{em.py} (Taylor-analytic), \texttt{em\_hybrid.py} (Taylor-LS), and \texttt{em\_local\_edmd.py} (local EDMD). Validation scripts: \texttt{validation\_sweep\_N.py}, \texttt{validation\_pendulum.py}.
+\paragraph{Code and data.} All implementations, validation scripts, and raw experiment data are available at \url{https://github.com/agencyenterprise/fractal_residual_aware_clustering}.
 
 \begin{thebibliography}{99}
 
@@ -447,6 +457,16 @@ Three practically-important findings: (i) on globally-polynomial systems, partit
 \bibitem{dempster1977maximum} A.~P.~Dempster, N.~M.~Laird, D.~B.~Rubin. Maximum likelihood from incomplete data via the EM algorithm. \textit{J.~Roy.\ Statist.\ Soc.~B}, 39(1):1--38, 1977.
 
 \bibitem{ferrari2003clustering} G.~Ferrari-Trecate, M.~Muselli, D.~Liberati, M.~Morari. A clustering technique for the identification of piecewise affine systems. \textit{Automatica}, 39(2):205--217, 2003.
+
+\bibitem{gershenfeld1997} N.~Gershenfeld. Nonlinear inference and cluster-weighted modeling. \textit{Annals of the New York Academy of Sciences}, 808(1):18--24, 1997.
+
+\bibitem{gershenfeld1999nature} N.~Gershenfeld, B.~Schoner, E.~Metois. Cluster-weighted modelling for time-series analysis. \textit{Nature}, 397(6717):329--332, 1999.
+
+\bibitem{ingrassia2012} S.~Ingrassia, S.~C.~Minotti, G.~Vittadini. Local statistical modeling via a cluster-weighted approach with elliptical distributions. \textit{J.~Classification}, 29(3):363--401, 2012.
+
+\bibitem{ingrassia2014} S.~Ingrassia, S.~C.~Minotti, A.~Punzo. Model-based clustering via linear cluster-weighted models. \textit{Comput.\ Statist.\ Data Anal.}, 71:159--182, 2014.
+
+\bibitem{punzo2014poly} A.~Punzo. Flexible mixture modeling with the polynomial Gaussian cluster-weighted model. \textit{Statist.\ Modelling}, 14(3):257--291, 2014.
 
 \bibitem{fox2011bayesian} E.~B.~Fox, E.~B.~Sudderth, M.~I.~Jordan, A.~S.~Willsky. Bayesian nonparametric inference of switching dynamic linear models. \textit{IEEE Trans.\ Signal Proc.}, 59(4):1569--1585, 2011.
 

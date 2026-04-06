@@ -220,3 +220,4 @@ __marimo__/
 
 # Experiment raw data (large, regenerable)
 papers/data/
+.DS_Store
