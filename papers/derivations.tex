@@ -539,7 +539,7 @@ We augment the standard GMM with a \textbf{second observation per data point}: t
   f_{\mathrm{obs}}(x_i) \mid x_i,z_i=k &\sim \mathcal{N}(L_k(x_i),\sigma^2 I). \label{eq:resid-model}
 \end{align}
 
-Line~\eqref{eq:prox-model} is the proximity model (standard GMM). Line~\eqref{eq:resid-model} is the residual model (novel): it says that the observed vector field $f_{\mathrm{obs}}(x_i)$ is drawn from a Gaussian centered at the local model's prediction $L_k(x_i)$, with isotropic noise $\sigma^2 I$.
+Line~\eqref{eq:prox-model} is the proximity model (standard GMM). Line~\eqref{eq:resid-model} is the residual model: it says that the observed vector field $f_{\mathrm{obs}}(x_i)$ is drawn from a Gaussian centered at the local model's prediction $L_k(x_i)$, with isotropic noise $\sigma^2 I$. Together, lines~\eqref{eq:prox-model}--\eqref{eq:resid-model} define a \textbf{Cluster-Weighted Model} (CWM)---the joint-density factorization $p(x,y)=\sum_k\pi_k\,p(x|k)\,p(y|x,k)$ introduced by Gershenfeld (1997) and formalized by Ingrassia et al.\ (2012).
 
 \paragraph{What is $L_k(x_i)$?} This is the local model's prediction of the vector field at $x_i$. It depends on:
 \begin{itemize}[leftmargin=*,itemsep=0pt]
@@ -675,13 +675,13 @@ The general form of $Q$ is~\eqref{eq:Q-general}: $Q(\theta)=\sum_{i,k}r_{ik}\log
   \log p(x_i,f_{\mathrm{obs}}(x_i),z_i=k\mid\theta) &= \log p(z_i=k\mid\theta) + \log p(x_i\mid z_i=k,\theta) + \log p(f_{\mathrm{obs}}(x_i)\mid x_i,z_i=k,\theta) \notag \\
   &= \log\pi_k + \log\mathcal{N}(x_i;c_k,\Sv_k) + \log\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I).
 \end{align}
-The first two terms are identical to standard GMM. The third term---the log-residual---is our novel contribution. Substituting into $Q$:
+The first two terms are identical to standard GMM. The third term---the log-residual---is what distinguishes the CWM from a standard GMM: it couples the cluster assignments to the local regression quality. This factorization is due to Gershenfeld (1997) and Ingrassia et al.\ (2012). Substituting into $Q$:
 \begin{equation}
   Q(\theta) = \underbrace{\sum_{i,k} r_{ik}\log\pi_k}_{Q_\pi} + \underbrace{\sum_{i,k} r_{ik}\log\mathcal{N}(x_i;c_k,\Sv_k)}_{Q_{\text{prox}}} + \underbrace{\sum_{i,k} r_{ik}\log\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I)}_{Q_{\text{res}}}.
   \label{eq:Q-ours}
 \end{equation}
 
-The $Q_\pi$ and $Q_{\text{prox}}$ terms are identical to standard GMM. The novel $Q_{\text{res}}$ term is:
+The $Q_\pi$ and $Q_{\text{prox}}$ terms are identical to standard GMM. The $Q_{\text{res}}$ term (the CWM regression component) is:
 \begin{equation}
   Q_{\text{res}} = -\frac{Pd}{2}\log(2\pi\sigma^2) - \frac{1}{2\sigma^2}\sum_{i,k} r_{ik}\|\varepsilon_k(x_i)\|^2.
 \end{equation}
@@ -782,7 +782,7 @@ Equation~\eqref{eq:ck-full-deriv} has three contributions to the left-hand side 
 \begin{enumerate}[leftmargin=*,itemsep=0pt]
   \item $\Lambda_0$: pull toward the prior mean $\mu_0$.
   \item $R_k\Sv_k^{-1}$: pull toward the data mean $S_x/R_k$ (standard GMM term).
-  \item $(R_k/\sigma^2)\Jv_k^\top\Jv_k$: pull toward the point that minimizes the residual (novel term).
+  \item $(R_k/\sigma^2)\Jv_k^\top\Jv_k$: pull toward the point that minimizes the residual (the CWM regression term).
 \end{enumerate}
 \textbf{Variant A (Taylor-analytic) drops the third term entirely.} This is what makes it approximate.
 \end{keyidea}
