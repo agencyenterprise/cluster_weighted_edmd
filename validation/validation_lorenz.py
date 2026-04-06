@@ -1,15 +1,16 @@
 import numpy as np
 import torch
+from utils.paths import fig_path, data_path
 
-from lorenz import generate_data, f, J, test_jacobian
-from distributions import (
+from simulators.lorenz import generate_data, f, J, test_jacobian
+from models.distributions import (
     test_mvn_logpdf,
     test_residual_logpdf_zero,
     test_responsibilities_sum_to_one,
 )
-from em import fit, e_step
-from marginal_likelihood import total_log_marginal, bic
-from viz import (
+from models.em import fit, e_step
+from models.marginal_likelihood import total_log_marginal, bic
+from utils.viz import (
     plot_elbo,
     plot_attractor_clusters,
     plot_comparison,
@@ -210,33 +211,51 @@ print(f"  BIC/log-ML use hard assignments (biased toward larger N).")
 print()
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 8. PLOTS
+# 8. SAVE RAW DATA
+# ═════════════════════════════════════════════════════════════════════════════
+
+import json
+
+raw = {
+    'err_gmm': err_gmm, 'err_ours': err_ours, 'improvement': improvement,
+    'ml_gmm': ml_gmm, 'ml_ours': ml_ours,
+    'elbo_by_N': {str(k): v for k, v in elbo_by_N.items()},
+    'bic_by_N': {str(k): v for k, v in bic_by_N.items()},
+    'ml_by_N': {str(k): v for k, v in ml_by_N.items()},
+    'best_N_ml': best_N_ml, 'best_N_bic': best_N_bic, 'best_N_elbo': best_N_elbo,
+}
+with open(data_path("lorenz_results.json"), "w") as fp:
+    json.dump(raw, fp, indent=2)
+print(f"Raw data saved to {data_path('lorenz_results.json')}")
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 9. PLOTS
 # ═════════════════════════════════════════════════════════════════════════════
 
 print("=" * 60)
 print("GENERATING PLOTS")
 print("=" * 60)
 
-plot_elbo(history_gmm,  title="ELBO_GMM",   save="elbo_gmm.png")
-plot_elbo(history_ours, title="ELBO_Ours",  save="elbo_ours.png")
+plot_elbo(history_gmm,  title="ELBO_GMM",   save=fig_path("elbo_gmm.png"))
+plot_elbo(history_ours, title="ELBO_Ours",  save=fig_path("elbo_ours.png"))
 
 plot_attractor_clusters(X, r_gmm,  state_gmm,
                         title="Standard GMM Clusters",
-                        save="clusters_gmm.png")
+                        save=fig_path("clusters_gmm.png"))
 plot_attractor_clusters(X, r_ours, state_ours,
                         title="Residual-Aware Clusters",
-                        save="clusters_ours.png")
+                        save=fig_path("clusters_ours.png"))
 
 plot_comparison(X, r_gmm, state_gmm, r_ours, state_ours,
-                save="comparison.png")
+                save=fig_path("comparison.png"))
 
 plot_residuals_per_cluster(X, F_obs, r_ours, state_ours,
-                           save="residuals_per_cluster.png")
+                           save=fig_path("residuals_per_cluster.png"))
 
-plot_responsibilities(r_ours, save="responsibilities.png")
+plot_responsibilities(r_ours, save=fig_path("responsibilities.png"))
 
 if elbo_by_N:
     plot_model_selection(elbo_by_N, bic_by_N, ml_by_N,
-                         save="model_selection.png")
+                         save=fig_path("model_selection.png"))
 
 print("\nDone.")

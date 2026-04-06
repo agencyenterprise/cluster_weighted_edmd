@@ -13,17 +13,18 @@ Reports:
 """
 
 import numpy as np
+from utils.paths import fig_path, data_path
 import torch
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
 import pykoopman as pk
 
-from lorenz import generate_data, f as lorenz_f, J as lorenz_J
-from em import fit               as fit_taylor
-from em_hybrid import fit_hybrid, jacobian_drift
-from distributions import mvn_logpdf_batch
-from elbo import check_monotone
+from simulators.lorenz import generate_data, f as lorenz_f, J as lorenz_J
+from models.em import fit               as fit_taylor
+from models.em_hybrid import fit_hybrid, jacobian_drift
+from models.distributions import mvn_logpdf_batch
+from models.elbo import check_monotone
 
 torch.set_default_dtype(torch.float64)
 
@@ -216,5 +217,19 @@ ax[1].set_title('Hybrid J drift vs analytic (Taylor validity)')
 ax[1].legend(); ax[1].grid(alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("hybrid_sweep.png", dpi=120)
+plt.savefig(fig_path("hybrid_sweep.png"), dpi=120)
 print("\n→ saved hybrid_sweep.png")
+
+# ── Save raw data ────────────────────────────────────────────────────────────
+import json
+raw = {
+    "step_baseline": step_baseline,
+    "rows": rows,
+    "edmd_baselines": {
+        "deg2": {"one_step": edmd2_one, "r50": edmd2_r50, "r500": edmd2_r500},
+        "deg3": {"one_step": edmd3_one, "r50": edmd3_r50, "r500": edmd3_r500},
+    },
+}
+with open(data_path("validation_lorenz_hybrid.json"), "w") as fp:
+    json.dump(raw, fp, indent=2)
+print(f"Raw data saved to {data_path('validation_lorenz_hybrid.json')}")

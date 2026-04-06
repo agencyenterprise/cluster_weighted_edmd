@@ -2,9 +2,9 @@ import numpy as np
 import torch
 from sklearn.mixture import GaussianMixture
 
-from distributions import mvn_logpdf_batch, residual_logpdf_batch
-from elbo import compute_elbo, check_monotone
-from marginal_likelihood import total_log_marginal
+from .distributions import mvn_logpdf_batch, residual_logpdf_batch
+from .elbo import compute_elbo, check_monotone
+from .marginal_likelihood import total_log_marginal
 
 
 # ── Initialization ────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import torch
-from distributions import (
+from .distributions import (
     mvn_logpdf_batch,
     residual_logpdf_batch,
     dirichlet_logpdf,

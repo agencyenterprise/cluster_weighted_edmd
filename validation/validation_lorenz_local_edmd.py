@@ -16,20 +16,21 @@ Metrics:
 """
 
 import numpy as np
+from utils.paths import fig_path, data_path
 import torch
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
 import pykoopman as pk
 
-from lorenz import generate_data, f as lorenz_f, J as lorenz_J
-from em import fit as fit_taylor
-from em_local_edmd import (
+from simulators.lorenz import generate_data, f as lorenz_f, J as lorenz_J
+from models.em import fit as fit_taylor
+from models.em_local_edmd import (
     fit as fit_local_edmd,
     predict_f_all_clusters,
     monomial_exponents,
 )
-from distributions import mvn_logpdf_batch
+from models.distributions import mvn_logpdf_batch
 
 torch.set_default_dtype(torch.float64)
 
@@ -253,5 +254,26 @@ for ax, metric, ylabel, title in [
     ax.legend(fontsize=8)
 
 plt.tight_layout()
-plt.savefig("local_edmd_comparison.png", dpi=120)
+plt.savefig(fig_path("local_edmd_comparison.png"), dpi=120)
 print("\n→ saved local_edmd_comparison.png")
+
+# ── Save raw data ────────────────────────────────────────────────────────────
+import json
+raw = {
+    "step_baseline": step_baseline,
+    "rows": rows,
+    "taylor_rows": taylor_rows,
+    "edmd_baselines": {
+        "deg2": {
+            "one_step": edmd2_one,
+            "rollout": list(edmd2_rollout),
+        },
+        "deg3": {
+            "one_step": edmd3_one,
+            "rollout": list(edmd3_rollout),
+        },
+    },
+}
+with open(data_path("validation_lorenz_local_edmd.json"), "w") as fp:
+    json.dump(raw, fp, indent=2)
+print(f"Raw data saved to {data_path('validation_lorenz_local_edmd.json')}")

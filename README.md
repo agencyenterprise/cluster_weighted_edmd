@@ -1,65 +1,70 @@
-# Residual-Aware Bayesian Linearization on the Lorenz Attractor
+# Residual-Aware Bayesian Clustering for Local Dynamical Models
 
-Implementation of a novel Bayesian mixture model for partitioning
-a dynamical system's phase space into linearization regions.
+A unified framework for partitioning a dynamical system's phase space
+into regions within which a simple local model accurately predicts the
+vector field. Clusters form by joint likelihood of position AND
+linearization quality, not geometry alone.
 
-## What this implements
+## Three local-model variants
 
-A Gaussian Mixture Model augmented with a **linearization residual
-likelihood factor**:
+| Variant | Module | Local model | Needs analytic J? |
+|---|---|---|---|
+| Taylor-analytic | `models/em.py` | `f(c_k) + J(c_k)(x - c_k)` | Yes |
+| Taylor-LS | `models/em_hybrid.py` | `f_k + J_k(x - c_k)` (LS-fit) | No |
+| Local EDMD | `models/em_local_edmd.py` | `[M_k Phi(x - c_k)]_{1:d}` | No |
 
-    p(x_i, f(x_i) | z_i=k) = N(x_i; c_k, Sigma_k)        [proximity]
-                             * N(eps_k(x_i); 0, sigma2*I)  [novel]
+All share the same E-step; they differ only in the M-step.
 
-where eps_k(x_i) = f(x_i) - f(c_k) - J_k @ (x_i - c_k) is the
-Taylor remainder. This makes cluster assignments sensitive to
-linearization quality, not just geometric proximity.
+## Project structure
 
-## Files
-
-    lorenz.py              System definition, data generation, Jacobian test
-    distributions.py       Stable log-densities via torch.distributions
-    marginal_likelihood.py Exact NIW marginal likelihood (Rung 4 derivation)
-    elbo.py                ELBO computation for convergence monitoring
-    em.py                  Full EM loop with residual-corrected M-step
-    viz.py                 All visualization
-    run.py                 Main experiment entry point
+    residual_aware_clustering/
+    ├── simulators/                          Dynamical system definitions
+    │   ├── lorenz.py                          Lorenz attractor (d=3, polynomial)
+    │   └── pendulum.py                        Damped pendulum (d=2, non-polynomial)
+    │
+    ├── models/                              EM framework and shared components
+    │   ├── em.py                              Taylor-analytic EM
+    │   ├── em_hybrid.py                       Taylor-LS EM (LS-refit J_k, f_k)
+    │   ├── em_local_edmd.py                   Local EDMD EM (Koopman per cluster)
+    │   ├── distributions.py                   Stable log-densities
+    │   ├── elbo.py                            ELBO computation + monotonicity
+    │   └── marginal_likelihood.py             Exact NIW marginal likelihood
+    │
+    ├── validation/                          Experiments and comparisons
+    │   ├── validation_lorenz.py               Lorenz: full experiment (sanity + fit + plots)
+    │   ├── validation_lorenz_vs_edmd.py       Lorenz: one-step + rollout vs global EDMD
+    │   ├── validation_lorenz_sweep_N.py       Lorenz: sweep N for all methods
+    │   ├── validation_lorenz_hybrid.py        Lorenz: Taylor-analytic vs Taylor-LS
+    │   ├── validation_lorenz_local_edmd.py    Lorenz: local EDMD vs global EDMD
+    │   └── validation_pendulum.py             Pendulum: all four families compared
+    │
+    ├── utils/                               Shared utilities
+    │   ├── viz.py                             Visualization / plotting
+    │   └── paths.py                           Output paths (figures, data)
+    │
+    ├── papers/                              Manuscripts and outputs
+    │   ├── paper.tex                          Main paper
+    │   ├── derivations.tex                    Detailed derivations from first principles
+    │   ├── figures/                           Generated plots (git-tracked)
+    │   └── data/                              Raw experiment data JSON (git-ignored)
+    │
+    ├── requirements.txt
+    └── README.md
 
 ## Setup
 
     pip install -r requirements.txt
 
-## Run
+## Quick start
 
-    python run.py
+    # Lorenz full experiment (sanity tests + EM fit + plots)
+    python -m validation.validation_lorenz
 
-## Expected output
+    # Pendulum comparison — the key result
+    python -m validation.validation_pendulum
 
-    All tests passed.
-    ...
-    Mean linearization error — GMM:   [value]
-    Mean linearization error — Ours:  [value]  (should be lower)
-    Improvement:                       [X]%
+    # Lorenz: sweep cluster count N
+    python -m validation.validation_lorenz_sweep_N
 
-    Best N by log marginal likelihood: 2 or 3
-
-## Plots generated
-
-    elbo_gmm.png              ELBO convergence — baseline
-    elbo_ours.png             ELBO convergence — our method
-    clusters_gmm.png          3D attractor, GMM cluster coloring
-    clusters_ours.png         3D attractor, our method cluster coloring
-    comparison.png            Side-by-side center locations
-    residuals_per_cluster.png Residual vs distance for each cluster
-    responsibilities.png      Soft assignment heatmap
-    model_selection.png       ELBO / BIC / log ML vs N
-
-## Key sanity checks
-
-1. ELBO must be monotonically non-decreasing (checked automatically)
-2. test_jacobian error < 1e-7
-3. test_mvn_logpdf error < 1e-10
-4. test_residual_logpdf_zero error < 1e-10
-5. Responsibilities sum to 1 across clusters for each point
-6. Our method should show lower mean linearization error than GMM
-7. Model selection should peak at N=2 or N=3 for Lorenz
+    # Lorenz: compare Taylor-analytic vs Taylor-LS vs GMM
+    python -m validation.validation_lorenz_hybrid

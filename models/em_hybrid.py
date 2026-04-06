@@ -16,12 +16,12 @@ With these changes the ELBO is monotone under pure coordinate-ascent EM.
 import numpy as np
 import torch
 
-from em import (
+from .em import (
     initialize,
     e_step,
     handle_dead_clusters,
 )
-from elbo import compute_elbo, check_monotone
+from .elbo import compute_elbo, check_monotone
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -14,15 +14,16 @@ residual term is used only during training.
 """
 
 import numpy as np
+from utils.paths import fig_path, data_path
 import torch
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
 import pykoopman as pk
 
-from lorenz import generate_data, f as lorenz_f, J as lorenz_J, SIGMA, RHO, BETA
-from em import fit, initialize
-from distributions import mvn_logpdf_batch
+from simulators.lorenz import generate_data, f as lorenz_f, J as lorenz_J, SIGMA, RHO, BETA
+from models.em import fit, initialize
+from models.distributions import mvn_logpdf_batch
 
 torch.set_default_dtype(torch.float64)
 
@@ -244,13 +245,13 @@ def one_step_metrics(name, X_pred):
           f"relative to ‖x_{{t+1}}-x_t‖ = {rel*100:.2f}%")
     return mean_err
 
-one_step_metrics("ours  (N=5)",   one_step_ours(X_te_in, state_ours))
-one_step_metrics("gmm   (N=5)",   one_step_ours(X_te_in, state_gmm))
+onestep_ours = one_step_metrics("ours  (N=5)",   one_step_ours(X_te_in, state_ours))
+onestep_gmm  = one_step_metrics("gmm   (N=5)",   one_step_ours(X_te_in, state_gmm))
 # EDMD simulate starting from each X_te_in[i] for 1 step
 edmd2_pred = one_step_edmd(X_te_in, edmd2)
 edmd3_pred = one_step_edmd(X_te_in, edmd3)
-one_step_metrics("edmd  deg-2",   edmd2_pred)
-one_step_metrics("edmd  deg-3",   edmd3_pred)
+onestep_edmd2 = one_step_metrics("edmd  deg-2",   edmd2_pred)
+onestep_edmd3 = one_step_metrics("edmd  deg-3",   edmd3_pred)
 
 print(f"\n  baseline ‖x_{{t+1}}-x_t‖ mean = {torch.linalg.norm(X_te_next - X_te_in, dim=1).mean().item():.5f}")
 
@@ -281,5 +282,26 @@ ax2.set_title("Rollout trajectories (first init)")
 ax2.legend()
 
 plt.tight_layout()
-plt.savefig("validation_rollouts.png", dpi=120)
+plt.savefig(fig_path("validation_rollouts.png"), dpi=120)
 print("\n→ saved validation_rollouts.png")
+
+# ── Save raw data ────────────────────────────────────────────────────────────
+import json
+step_baseline = torch.linalg.norm(X_te_next - X_te_in, dim=1).mean().item()
+raw = {
+    "attractor_diameter": attractor_diameter,
+    "step_baseline": step_baseline,
+    "rollout_err_at_step": {
+        m: {"50": e[50].item(), "200": e[200].item(), "500": e[500].item()}
+        for m, e in err_curves.items()
+    },
+    "one_step_mean_err": {
+        "ours": onestep_ours,
+        "gmm": onestep_gmm,
+        "edmd_deg2": onestep_edmd2,
+        "edmd_deg3": onestep_edmd3,
+    },
+}
+with open(data_path("validation_lorenz_vs_edmd.json"), "w") as fp:
+    json.dump(raw, fp, indent=2)
+print(f"Raw data saved to {data_path('validation_lorenz_vs_edmd.json')}")

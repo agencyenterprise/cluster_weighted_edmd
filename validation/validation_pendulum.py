@@ -19,10 +19,11 @@ Metrics:
 """
 
 import numpy as np
+from utils.paths import fig_path, data_path
 import torch
 import matplotlib.pyplot as plt
 
-from pendulum import (
+from simulators.pendulum import (
     f as pendulum_f,
     J as pendulum_J,
     sample_phase_space,
@@ -30,9 +31,9 @@ from pendulum import (
     wrap_theta,
     angular_dist,
 )
-from em import fit as fit_taylor
-from em_hybrid import fit_hybrid
-from em_local_edmd import (
+from models.em import fit as fit_taylor
+from models.em_hybrid import fit_hybrid
+from models.em_local_edmd import (
     fit as fit_local_edmd,
     predict_f_all_clusters,
     monomial_exponents,
@@ -40,7 +41,7 @@ from em_local_edmd import (
     monomials_grad,
     weighted_continuous_edmd,
 )
-from distributions import mvn_logpdf_batch
+from models.distributions import mvn_logpdf_batch
 
 torch.set_default_dtype(torch.float64)
 np.random.seed(0)
@@ -263,7 +264,7 @@ for ax, metric, ylabel, title in [
     ax.legend(fontsize=9)
 
 plt.tight_layout()
-plt.savefig("pendulum_comparison.png", dpi=120)
+plt.savefig(fig_path("pendulum_comparison.png"), dpi=120)
 print("\n→ saved pendulum_comparison.png")
 
 # ── Also plot a sample rollout visually ──────────────────────────────────────
@@ -288,5 +289,14 @@ ax.set_xlabel(r'$\theta$'); ax.set_ylabel(r'$\dot\theta$')
 ax.set_title(f"Rollout from θ={x0[0]:.1f}, θ̇={x0[1]:.1f}  (10 seconds)")
 ax.legend(); ax.grid(alpha=0.3)
 plt.tight_layout()
-plt.savefig("pendulum_rollout.png", dpi=120)
+plt.savefig(fig_path("pendulum_rollout.png"), dpi=120)
 print("→ saved pendulum_rollout.png")
+
+# ── Save raw data ────────────────────────────────────────────────────────────
+import json
+raw = {
+    "rows": rows,
+}
+with open(data_path("validation_pendulum.json"), "w") as fp:
+    json.dump(raw, fp, indent=2)
+print(f"Raw data saved to {data_path('validation_pendulum.json')}")

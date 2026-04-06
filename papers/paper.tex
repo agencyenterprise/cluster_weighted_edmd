@@ -1,0 +1,473 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amssymb, amsthm, amsfonts}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{enumitem}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
+
+\theoremstyle{definition}
+\newtheorem{remark}{Remark}
+
+% ---- Lightweight algorithm environment (no external packages) ----
+\newcounter{algcounter}
+\newenvironment{algobox}[1]{%
+  \refstepcounter{algcounter}%
+  \par\medskip\noindent\hrule\vspace{2pt}%
+  \noindent\textbf{Algorithm \thealgcounter:} \textit{#1}\par\vspace{2pt}\hrule\vspace{4pt}%
+  \begingroup\small
+  \begin{tabbing}\quad\=\quad\=\quad\=\quad\=\quad\=\kill
+}{%
+  \end{tabbing}\endgroup\vspace{-8pt}\hrule\medskip
+}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Sv}{\boldsymbol{\Sigma}}
+\newcommand{\Phiv}{\boldsymbol{\Phi}}
+\newcommand{\Mv}{\boldsymbol{M}}
+\newcommand{\Jv}{\boldsymbol{J}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\logsumexp}{\operatorname{logsumexp}}
+
+\title{Residual-Aware Bayesian Clustering for Local Dynamical Models\\[0.3em]\large A Unified Framework for Piecewise Linearization of Vector Fields}
+\author{Lorenzo Tomaz\\AE Studio}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a Bayesian mixture-model framework for partitioning the phase space of a dynamical system $\dot{x}=f(x)$ into regions within which a simple local model accurately predicts the vector field. Unlike standard Gaussian mixture models, which cluster points by geometric proximity alone, our framework clusters points by the \emph{joint likelihood of position and vector-field observation}: a region is favoured only if both the points fall there \emph{and} a local dynamical model predicts $f(x)$ accurately there. The framework is parameterization-agnostic: the local model inside each cluster can be a Taylor expansion evaluated from an analytic Jacobian, a least-squares affine fit, or a full local Extended Dynamic Mode Decomposition (EDMD) operator in a lifted polynomial space. We derive the EM updates for all three variants, show they share a common E-step and differ only in the M-step, and present empirical results on two canonical dynamical systems---the Lorenz attractor and the damped pendulum. On Lorenz, global EDMD with a degree-2 polynomial lift is exact, so no clustering method can improve upon it; partitioning adds parameters without benefit. On the pendulum, where the nonlinearity $\sin(\theta)$ has no finite polynomial representation, the framework delivers an order-of-magnitude parameter-efficiency gain over global EDMD, and reveals a non-trivial crossover: the LS-refit variant dominates at coarse~$N$ while the analytic-Jacobian variant dominates at fine~$N$. These findings characterize precisely when piecewise-local modeling helps, when it does not, and which parameterization to select given the available information about the system.
+\end{abstract}
+
+\section{Introduction}
+
+\subsection{The Partition Problem}
+
+Consider a continuous dynamical system
+\begin{equation}
+  \dot{x} = f(x), \qquad x \in \R^d, \qquad f\colon \R^d \to \R^d.
+\end{equation}
+In many applications---reduced-order modeling, control design, stability analysis, reachability, surrogate modeling---one wishes to approximate $f$ with a simpler function that is tractable to analyze or cheap to evaluate. The simplest such approximation is a single linear model $f(x) \approx A(x-x_0)+b$ built from the Jacobian $A=\partial f/\partial x|_{x_0}$. This works near $x_0$ but the approximation error grows as $O(\|x-x_0\|^2)$, so a single global linearization is inadequate for any problem whose trajectories explore a large portion of state space.
+
+The natural remedy is \textbf{piecewise linearization}: partition the region of interest $V\subset\R^d$ into $N$ subregions $V_1,\dots,V_N$ with centers $c_k\in V_k$ and local models $L_k(x)=A_k(x-c_k)+b_k$. Two questions arise: \emph{where should the $c_k$ be placed?}, and \emph{how should phase space be partitioned into the $V_k$?} A naive answer: cluster $\{x_i\}$ geometrically (k-means, GMM) and evaluate the Jacobian at each centroid. But this ignores the dynamics. A region with high sample density but high \emph{curvature} of $f$ is a bad choice of subregion. \emph{The partition should be chosen not by geometric proximity but by \textbf{linearization quality}.} Centers should sit where $f$ is locally flat; boundaries should fall where $f$ changes character.
+
+\subsection{A Generative Framing}
+
+We cast this as a mixture model over joint observations $(x,f(x))$. The joint likelihood of a pair $(x_i,f(x_i))$ under component $k$ factorizes:
+\begin{equation}
+  p(x_i, f(x_i) \mid z_i = k) \;=\; \underbrace{\mathcal{N}(x_i;\, c_k, \Sv_k)}_{\text{proximity}} \;\cdot\; \underbrace{\mathcal{N}(f(x_i) - L_k(x_i);\, 0,\, \sigma^2 I)}_{\text{residual}}.
+\end{equation}
+The proximity factor is the standard GMM term. The \emph{residual factor} is novel: it prefers to assign $x_i$ to the component whose local model correctly predicts $f(x_i)$. A point is assigned to component $k$ only if both factors agree. Writing $\varepsilon_k(x)=f(x)-L_k(x)$:
+\begin{equation}
+  \log p(x_i, f(x_i)\mid z_i=k) = \text{const} - \tfrac{1}{2}(x_i-c_k)^\top \Sv_k^{-1}(x_i-c_k) - \|\varepsilon_k(x_i)\|^2 / (2\sigma^2).
+\end{equation}
+The hyperparameter $\sigma^2$ sets the scale at which residuals matter: $\sigma^2\to\infty$ reduces to standard GMM; $\sigma^2\to 0$ makes the framework a piecewise regression.
+
+\subsection{Contributions}
+
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+  \item A \textbf{unified framework} in which the local-model parameterization (analytic Taylor, LS-fit affine, or local EDMD in a lifted space) is modular: the E-step is identical across variants, which differ only in the M-step.
+  \item A \textbf{principled Bayesian treatment} with Normal-Inverse-Wishart (NIW) conjugate priors on $(c_k,\Sv_k)$, giving closed-form marginal likelihoods for cluster-count selection and monotone-ELBO convergence for two of the three variants.
+  \item \textbf{Empirical characterization of when each variant wins}, including the non-trivial finding that the LS-fit variant dominates analytic Jacobians at \emph{coarse} partitions, while the analytic variant dominates at \emph{fine} partitions.
+  \item A \textbf{fair comparison to global EDMD}, showing that for polynomial dynamical systems piecewise local models cannot improve on the right global lifting, but for non-polynomial systems piecewise local EDMD achieves an order-of-magnitude parameter-efficiency gain.
+\end{enumerate}
+
+\section{Background}
+
+\subsection{Linearization and Taylor remainder}
+
+Given a smooth vector field $f\colon\R^d\to\R^d$, the Jacobian at $x_0$ is $\Jv(x_0)\in\R^{d\times d}$ with $[\Jv(x_0)]_{ij}=\partial f_i/\partial x_j(x_0)$. Taylor's theorem gives, for $x$ near $x_0$:
+\begin{equation}
+  f(x) = f(x_0) + \Jv(x_0)(x-x_0) + \tfrac{1}{2}H(\xi)(x-x_0,x-x_0),
+\end{equation}
+for some $\xi$ on the segment, where $H$ is the Hessian tensor. The linearization error is $O(\|x-x_0\|^2)$. A single linearization is accurate in a ball of radius $r_0\sim\varepsilon/\|H\|$ for target error $\varepsilon$.
+
+\subsection{Gaussian mixture models and EM}
+
+A GMM with $N$ components has density $p(x)=\sum_k\pi_k\mathcal{N}(x;\mu_k,\Sv_k)$. Fitting by maximum likelihood is tractable via \textbf{Expectation-Maximization} (Dempster, Laird, Rubin 1977). Introducing latent assignments $z_i$:
+\begin{description}[leftmargin=1em,itemsep=0pt]
+  \item[E-step:] compute soft responsibilities $r_{ik}=p(z_i=k\mid x_i)$.
+  \item[M-step:] update $(\pi_k,\mu_k,\Sv_k)$ to maximize expected complete-data log-likelihood.
+\end{description}
+EM is coordinate ascent on the Evidence Lower Bound $\mathrm{ELBO}(q,\theta)=\E_q[\log p(X,Z\mid\theta)]+H[q]$. Both E- and M-steps are non-decreasing in ELBO.
+
+\subsection{Koopman theory and EDMD}
+
+The Koopman operator $\mathcal{K}_t$ associated with a flow $\varphi_t$ acts on observables $g\colon\R^d\to\R$ by $(\mathcal{K}_t g)(x)=g(\varphi_t(x))$. Though the flow is generally nonlinear, $\mathcal{K}_t$ is \emph{linear} on observables; its infinitesimal generator $\mathcal{L}$ satisfies $(\mathcal{L}g)(x)=\nabla g(x)\cdot f(x)$. Extended Dynamic Mode Decomposition (EDMD; Williams, Kevrekidis, Rowley 2015) approximates $\mathcal{L}$ in a finite-dimensional subspace spanned by observables $\Phiv(x)=(\phi_1(x),\dots,\phi_M(x))$ via weighted least squares: fit $\Mv\in\R^{M\times M}$ so that $(\nabla\Phiv(x_i))\cdot f(x_i)\approx \Mv\cdot\Phiv(x_i)$. When the dictionary is Koopman-invariant, $\Mv$ is exact. For Lorenz (RHS of degree 2), a degree-2 monomial dictionary is Koopman-invariant and EDMD recovers the dynamics essentially exactly.
+
+\subsection{Normal-Inverse-Wishart conjugacy}
+
+For a Gaussian component with unknown $(c_k,\Sv_k)$, the conjugate prior is the NIW: $\Sv_k\sim\mathcal{IW}(\Psi_0,\nu_0)$, $c_k\mid\Sv_k\sim\mathcal{N}(\mu_0,\Sv_k/\kappa_0)$. The marginal likelihood is closed-form, enabling Bayesian selection of the cluster count $N$.
+
+\section{The Residual-Aware Framework}
+
+\subsection{The generative model}
+
+\begin{align}
+  \pi &\sim \mathrm{Dirichlet}(\alpha_0\mathbf{1}_N), \\
+  \Sv_k \sim \mathcal{IW}(\Psi_0,\nu_0),\ &\ c_k\mid\Sv_k \sim \mathcal{N}(\mu_0,\Sv_k/\kappa_0), \\
+  z_i \sim \mathrm{Cat}(\pi),\ &\ x_i\mid z_i=k \sim \mathcal{N}(c_k,\Sv_k), \\
+  f_{\mathrm{obs}}(x_i)\mid x_i,z_i=k &\sim \mathcal{N}(L_k(x_i),\sigma^2 I_d).
+\end{align}
+The last line embeds the residual factor. The observed $f_{\mathrm{obs}}(x_i)$ is the true vector-field value at $x_i$ (assumed known or numerically integrable).
+
+\begin{remark}[On input-dependent means]
+The factor $\mathcal{N}(f_{\mathrm{obs}}(x_i); L_k(x_i),\sigma^2 I)$ is a \emph{conditional} Gaussian: given the input $x_i$ and the assignment $z_i=k$, the output $f_{\mathrm{obs}}(x_i)$ is a Gaussian random variable whose mean depends on $x_i$ through $L_k(x_i)$. This is the same structure as linear regression ($y\mid x\sim\mathcal{N}(w^\top x,\sigma^2)$) or mixtures of experts. Equivalently, the \emph{residual} $\varepsilon_k(x_i)=f_{\mathrm{obs}}(x_i)-L_k(x_i)$ has a fixed distribution $\mathcal{N}(0,\sigma^2 I)$ that does not depend on $x_i$; the input-dependence is absorbed into the transformation from $f_{\mathrm{obs}}$ to $\varepsilon$. Only the data-dependent squared-error term $\|\varepsilon_k(x_i)\|^2$ enters the likelihood; the normalizer $-\tfrac{d}{2}\log(2\pi\sigma^2)$ is input-independent.
+\end{remark}
+
+\subsection{The joint likelihood}
+
+\begin{equation}
+  p(x_i,f(x_i)) = \sum_{k=1}^N \pi_k \cdot \mathcal{N}(x_i;c_k,\Sv_k) \cdot \mathcal{N}(f(x_i);L_k(x_i),\sigma^2 I).
+\end{equation}
+
+\subsection{The evidence lower bound}
+
+With variational posterior $r_{ik}=q(z_i=k)$:
+\begin{align}
+  \mathrm{ELBO}(q,\theta) &= \sum_{i,k} r_{ik}\bigl[\log\pi_k + \log\mathcal{N}(x_i;c_k,\Sv_k) + \log\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I)\bigr] \notag \\
+  &\quad - \sum_{i,k} r_{ik}\log r_{ik} + \log p(\pi\mid\alpha_0) + \sum_k \log p(c_k,\Sv_k\mid\mathrm{NIW}).
+\end{align}
+The ELBO is monotone non-decreasing across E-M iterations provided each M-step is a true coordinate-ascent maximization. We discuss how each variant satisfies or approximates this condition in Section~\ref{sec:variants}.
+
+\subsection{Contrast with standard GMM}
+
+In the limit $\sigma^2\to\infty$, the residual term $-\|\varepsilon_k(x_i)\|^2/(2\sigma^2)\to 0$ and the framework reduces exactly to standard GMM. In the limit $\sigma^2\to 0$, the residual dominates and the model becomes a piecewise regression. We calibrate $\sigma^2$ automatically from within-cluster residuals during initialization:
+\begin{equation}
+  \sigma^2 \leftarrow \mathrm{median}_{i,k}\bigl(\|\varepsilon_k(x_i)\|^2\bigr)/d.
+\end{equation}
+
+\section{Local-Model Variants}\label{sec:variants}
+
+\subsection{Variant A: Taylor-analytic}
+
+\textbf{Parameterization:} $L_k(x)=f(c_k)+\Jv(c_k)(x-c_k)$, where $\Jv$ is evaluated \emph{analytically} at $c_k$. Zero free local-model parameters.
+
+\textbf{Intuition:} Classical pointwise Taylor. Excellent local accuracy (zero error at $x=c_k$, $O(\|x-c_k\|^2)$ away), strongly regularized, no fitting noise. The downside: when the cluster is large, points at the boundary are poorly modeled because Taylor's theorem gives only local accuracy.
+
+\textbf{ELBO:} The center update for $c_k$ should include the residual gradient, but that gradient is tangled (when $c_k$ moves, both $f(c_k)$ and $\Jv(c_k)$ change). We use a GEM-style update: proximity-only gradient for $c_k$, then re-evaluate $f(c_k),\Jv(c_k)$. This can cause small ELBO non-monotonicities at high $N$.
+
+\subsection{Variant B: Taylor-LS (Hybrid)}
+
+\textbf{Parameterization:} $L_k(x)=f_k+\Jv_k(x-c_k)$, where $(f_k,\Jv_k)$ are free parameters fit by weighted LS per cluster. Free parameters per cluster: $d+d^2$.
+
+\textbf{M-step for $(f_k,\Jv_k)$:} Closed-form weighted LS. Let $\phi_i=[1,(x_i-c_k)^\top]^\top$, stack into $Z\in\R^{P\times(d+1)}$, $F\in\R^{P\times d}$, $W=\diag(r_{ik})$:
+\begin{equation}
+  [f_k^\top\ \Jv_k^\top]^\top = (Z^\top W Z+\lambda I)^{-1}Z^\top W F.
+\end{equation}
+
+\textbf{M-step for $c_k$} (full coordinate-ascent):
+\begin{equation}
+  \bigl[\Lambda_0+R_k\Sv_k^{-1}+(R_k/\sigma^2)\Jv_k^\top\Jv_k\bigr]c_k^{\mathrm{new}} = \Lambda_0\mu_0+\Sv_k^{-1}S_x-\tfrac{1}{\sigma^2}\Jv_k^\top(S_f-R_k f_k-\Jv_k S_x),
+\label{eq:ck-full}
+\end{equation}
+where $R_k=\sum_i r_{ik}$, $S_x=\sum_i r_{ik}x_i$, $S_f=\sum_i r_{ik}f(x_i)$. Under this update the ELBO is monotone.
+
+\textbf{Crossover intuition:} When clusters are small, $\Jv(c_k)\approx\Jv_k^{\mathrm{LS}}$, and analytic has zero noise while LS has fitting noise---analytic wins. When clusters are large, cluster-averaged $\Jv_k^{\mathrm{LS}}$ differs substantially from pointwise $\Jv(c_k)$, and averaging beats pointwise because the Taylor remainder dominates---LS wins.
+
+\subsection{Variant C: Local EDMD}
+
+\textbf{Parameterization:} $L_k(x)=[\Mv_k\cdot\Phiv(x-c_k)]_{1{:}d}$, where $\Phiv\colon\R^d\to\R^M$ is a polynomial lift of degree $p$, and $\Mv_k\in\R^{M\times M}$ is a local continuous Koopman generator. Parameters per cluster: $M^2=\binom{d+p}{p}^2$. For $d=3,p=2$: $M=10$, so $\Mv_k$ has 100 parameters.
+
+\textbf{Intuition:} Each cluster carries its own locally-valid finite-dimensional Koopman subspace. For a small region of phase space, even a modest polynomial lift can form an approximately-invariant subspace, because nonlinearities of $f$ are well-approximated by low-degree polynomials over narrow supports.
+
+\textbf{M-step for $\Mv_k$:} Weighted continuous EDMD fit:
+\begin{equation}
+  \Mv_k = \bigl(\sum_i r_{ik}[\nabla\Phiv_i\cdot f_i]\Phiv_i^\top\bigr)\cdot\bigl(\sum_i r_{ik}\Phiv_i\Phiv_i^\top+\lambda I\bigr)^{-1}.
+\end{equation}
+The predicted vector field is $\hat{f}(x)=[\Mv_k\Phiv(x-c_k)]_{1{:}d}$ (the entries corresponding to $\dot{u}$).
+
+\textbf{Why this helps on non-polynomial systems:} Global EDMD at degree $p$ can only approximate $\sin(\theta)$ by a fixed degree-$p$ Taylor polynomial, which degrades as $|\theta|$ grows. Local EDMD at degree $p$ around $\theta_k$ does Taylor around $\theta_k$, which is locally accurate per cluster.
+
+\subsection{Summary}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{lllll}
+\toprule
+Variant & Params/cluster & Narrative & Monotone ELBO & Works without $\Jv$? \\
+\midrule
+Taylor-analytic & 0 & Physics-grounded Taylor & Approximate (GEM) & No \\
+Taylor-LS & $d+d^2$ & Data-driven affine fit & Yes (pure CA-EM) & Yes \\
+Local EDMD & $\binom{d+p}{p}^2$ & Lifted Koopman per cluster & Yes (fixed $c_k$) & Yes \\
+\bottomrule
+\end{tabular}
+\caption{Local-model variants.}
+\label{tab:variants}
+\end{table}
+
+\section{The EM Algorithm}
+
+\subsection{Initialization}
+
+GMM warm start on $\{x_i\}$ alone. Hard labels initialize: (i) Taylor-analytic uses $f(c_k),\Jv(c_k)$ analytically; (ii) Taylor-LS fits $(f_k,\Jv_k)$ by weighted LS on hard labels; (iii) Local EDMD fits $\Mv_k$ by weighted continuous EDMD. $\sigma^2$ is then calibrated from residuals. We use 2--3 random seeds and select the best run by final ELBO.
+
+\subsection{The E-step (identical for all variants)}
+
+\begin{align}
+  \log\tilde{r}_{ik} &= \log\pi_k + \log\mathcal{N}(x_i;c_k,\Sv_k) + \log\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I), \\
+  \log r_{ik} &= \log\tilde{r}_{ik} - \logsumexp_k \log\tilde{r}_{ik}.
+\end{align}
+
+\subsection{M-step variants}
+
+See Algorithms~\ref{alg:mstep-ls} and~\ref{alg:mstep-edmd}. The Taylor-analytic M-step is identical in structure to Algorithm~\ref{alg:mstep-ls} but uses $f_k\gets f(c_k^{\mathrm{new}}),\Jv_k\gets\Jv(c_k^{\mathrm{new}})$ analytically and omits the residual terms in the $c_k$ update~\eqref{eq:ck-full}.
+
+\subsection{Dead-cluster pruning}
+
+With $\alpha_0<1$ the Dirichlet prior drives $\pi_k\to 0$ for unused components. When $R_k<1$ we permanently remove the cluster. The user starts with $N$ larger than needed; pruning finds the right count.
+
+\subsection{Model selection}
+
+Closed-form log marginal likelihood via NIW conjugacy:
+\begin{align}
+  \log p(X_k) &= \tfrac{d}{2}\log(\kappa_0/\kappa_n) + \tfrac{\nu_0}{2}\log|\Psi_0| - \tfrac{\nu_n}{2}\log|\Psi_n| \notag \\
+  &\quad + \log\Gamma_d(\tfrac{\nu_n}{2}) - \log\Gamma_d(\tfrac{\nu_0}{2}) - \tfrac{R_k d}{2}\log\pi - \tfrac{1}{2\sigma^2}\sum_i\|\varepsilon_k(x_i)\|^2,
+\end{align}
+with posterior parameters $\kappa_n=\kappa_0+R_k$, $\nu_n=\nu_0+R_k$. The last term is the residual penalty---the only novel term compared to standard NIW marginal.
+
+\section{Algorithms}
+
+\begin{algobox}{Unified EM loop}\label{alg:em-loop}
+\textbf{Input:} $X\in\R^{P\times d},F\in\R^{P\times d}$; initial $N$; hyperparameters; \textsc{MStep} \\
+\textbf{Output:} state, responsibilities $r$, history \\[2pt]
+1: \> $\mathrm{state}\gets\textsc{Initialize}(X,F,N,\mathrm{hp})$ \\
+2: \> $\mathrm{history}\gets[\,]$ \\
+3: \> \textbf{for} $t=1,\dots,n_{\mathrm{iter}}$ \textbf{do} \\
+4: \> \> $r\gets\textsc{EStep}(X,F,\mathrm{state},\mathrm{hp})$ \\
+5: \> \> $\mathrm{state},r\gets\textsc{PruneDead}(\mathrm{state},r,X,F,\mathrm{hp})$ \\
+6: \> \> \textbf{if} $\mathrm{state}.N=0$ \textbf{then break} \\
+7: \> \> $\mathrm{history}.\mathrm{append}(\textsc{ELBO}(X,F,r,\mathrm{state},\mathrm{hp}))$ \\
+8: \> \> \textbf{if} $|\mathrm{history}[-1]-\mathrm{history}[-2]|<\mathrm{tol}$ \textbf{then break} \\
+9: \> \> $\mathrm{state}\gets\textsc{MStep}(X,F,r,\mathrm{state},\mathrm{hp})$ \\
+10: \> \textbf{end for} \\
+11: \> \textbf{return} $\mathrm{state},r,\mathrm{history}$
+\end{algobox}
+
+\begin{algobox}{E-step (common to all variants)}\label{alg:estep}
+\textbf{Input:} $X,F,\mathrm{state},\mathrm{hp}$ \\[2pt]
+1: \> $\log\pi\gets\log\mathrm{state}.\pi$ \\
+2: \> $\log\text{-prox}\gets\mathrm{mvn\_logpdf}(X,\mathrm{state}.\mathrm{centers},\mathrm{state}.\mathrm{covariances})$ \quad $(P\times N)$ \\
+3: \> $\log\text{-res}\gets\mathrm{residual\_logpdf}(X,F,\mathrm{state}.L,\sigma^2)$ \quad $(P\times N)$ \\
+4: \> $\log\tilde{r}\gets\log\pi+\log\text{-prox}+\log\text{-res}$ \\
+5: \> $\log r\gets\log\tilde{r}-\logsumexp(\log\tilde{r},\text{axis}=1)$ \\
+6: \> \textbf{return} $\exp(\log r)$
+\end{algobox}
+
+\begin{algobox}{M-step (Taylor-LS variant)}\label{alg:mstep-ls}
+\textbf{Input:} $X,F,r,\mathrm{state},\mathrm{hp}$ \\[2pt]
+1: \> $R\gets\mathrm{sum}(r,0)$; $\Sv^{-1}\gets\mathrm{inv}(\mathrm{state}.\mathrm{covariances})$ \\
+2: \> \textbf{for} $k=1,\dots,N$ \textbf{do} \\
+3: \> \> $r_k\gets r[:,k]$; $R_k\gets R[k]$ \\
+ \> \> \textit{Step 1: weighted LS for $f_k,\Jv_k$} \\
+4: \> \> $\delta\gets X-c_k$; $Z\gets[\mathbf{1},\delta]\in\R^{P\times(d+1)}$ \\
+5: \> \> $\beta\gets\mathrm{solve}(Z^\top\diag(r_k)Z+\lambda I,\,Z^\top\diag(r_k)F)$ \\
+6: \> \> $f_k\gets\beta[0]$; $\Jv_k\gets\beta[1{:}]^\top$ \\
+ \> \> \textit{Step 2: $c_k$ update (full gradient)} \\
+7: \> \> $S_x\gets r_k^\top X$; $S_f\gets r_k^\top F$ \\
+8: \> \> $\mathrm{LHS}\gets\Lambda_0+R_k\Sv_k^{-1}+(R_k/\sigma^2)\Jv_k^\top\Jv_k$ \\
+9: \> \> $\mathrm{RHS}\gets\Lambda_0\mu_0+\Sv_k^{-1}S_x-(1/\sigma^2)\Jv_k^\top(S_f-R_k f_k-\Jv_k S_x)$ \\
+10: \> \> $c_k^{\mathrm{new}}\gets\mathrm{solve}(\mathrm{LHS},\mathrm{RHS})$ \\
+ \> \> \textit{Step 3: $\Sv_k$ posterior mode} \\
+11: \> \> $\mathrm{diff}\gets X-c_k^{\mathrm{new}}$; $\mathrm{scatter}\gets\mathrm{diff}^\top\diag(r_k)\mathrm{diff}$ \\
+12: \> \> $\Sv_k^{\mathrm{new}}\gets(\Psi_0+\mathrm{scatter})/(\nu_0+R_k+d+1)+\lambda I$ \\
+13: \> \textbf{end for} \\
+14: \> $\pi^{\mathrm{new}}\gets(R+\alpha_0-1)/(P+N(\alpha_0-1))$; normalize \\
+15: \> \textbf{return} $\mathrm{state}$
+\end{algobox}
+
+\begin{algobox}{M-step (Local EDMD variant)}\label{alg:mstep-edmd}
+\textbf{Input:} $X,F,r,\mathrm{state},\mathrm{hp},\mathrm{exps}$ (monomial exponents) \\[2pt]
+1: \> $R\gets\mathrm{sum}(r,0)$; $\Sv^{-1}\gets\mathrm{inv}(\mathrm{state}.\mathrm{covariances})$ \\
+2: \> \textbf{for} $k=1,\dots,N$ \textbf{do} \\
+3: \> \> $r_k\gets r[:,k]$; $R_k\gets R[k]$ \\
+ \> \> \textit{Step 1: $c_k$ update (proximity-only)} \\
+4: \> \> $\mathrm{LHS}\gets\Lambda_0+R_k\Sv_k^{-1}$; $\mathrm{RHS}\gets\Lambda_0\mu_0+\Sv_k^{-1}(r_k^\top X)$ \\
+5: \> \> $c_k^{\mathrm{new}}\gets\mathrm{solve}(\mathrm{LHS},\mathrm{RHS})$ \\
+ \> \> \textit{Step 2: weighted continuous EDMD for $\Mv_k$} \\
+6: \> \> $U\gets X-c_k^{\mathrm{new}}$; $\Phiv\gets\mathrm{monomials}(U,\mathrm{exps})$ \quad $(P\times M)$ \\
+7: \> \> $\nabla\Phiv\gets\mathrm{monomials\_grad}(U,\mathrm{exps})$ \quad $(P\times M\times d)$ \\
+8: \> \> $\dot{\Phiv}\gets\mathrm{einsum}(\text{`pmd,pd}\to\text{pm'},\nabla\Phiv,F)$ \\
+9: \> \> $G\gets\Phiv^\top\diag(r_k)\Phiv$; $A\gets\dot{\Phiv}^\top\diag(r_k)\Phiv$ \\
+10: \> \> $\Mv_k\gets\mathrm{solve}(G+\lambda I,A^\top)^\top$ \\
+ \> \> \textit{Step 3: $\Sv_k$ posterior mode} \\
+11: \> \> $\mathrm{diff}\gets X-c_k^{\mathrm{new}}$; $\mathrm{scatter}\gets\mathrm{diff}^\top\diag(r_k)\mathrm{diff}$ \\
+12: \> \> $\Sv_k^{\mathrm{new}}\gets(\Psi_0+\mathrm{scatter})/(\nu_0+R_k+d+1)+\lambda I$ \\
+13: \> \textbf{end for} \\
+14: \> $\pi^{\mathrm{new}}\gets(R+\alpha_0-1)/(P+N(\alpha_0-1))$; normalize \\
+15: \> \textbf{return} $\mathrm{state}$
+\end{algobox}
+
+\section{Experiments}
+
+\subsection{Systems and metrics}
+
+\textbf{Lorenz} ($d=3$): $\dot{x}=\sigma(y-x),\dot{y}=x(\rho-z)-y,\dot{z}=xy-\beta z$, $(\sigma,\rho,\beta)=(10,28,8/3)$. Chaotic, RHS of degree 2. Data: 5000 points at $\Delta t=0.01$ after warmup; train/test split 4000/1000.
+
+\textbf{Damped pendulum} ($d=2$): $\dot{\theta}=\dot{\theta},\ddot{\theta}=-\sin\theta-\gamma\dot{\theta}$, $\gamma=0.2$. Dissipative, non-polynomial. Data: 4000 training points uniformly sampled from $(\theta,\dot{\theta})\in[-\pi,\pi]\times[-3,3]$; 1000 held-out test points.
+
+\textbf{Metrics:} (i) one-step vector-field error $\mathrm{mean}_i\|\hat{f}(x_i)-f(x_i)\|$; (ii) rollout error $\|\hat{x}_t-x_t\|$ from attractor initial conditions (true trajectory from RK45, learned via switching Euler); (iii) parameter count.
+
+\subsection{Lorenz results}
+
+\textbf{1. Global EDMD dominates absolutely.} Degree-2 (100 parameters) achieves 3.7\% one-step error; degree-3 (400 parameters) achieves 0.04\%---exact, as expected.
+
+\textbf{2. Local EDMD is constant in $N$.} At any $N\geq 2$ and any degree $\geq 2$, local EDMD produces identical 5.55\% one-step error. This is structural: since the global Koopman is exact in a 10-dim lift, every local cluster learns the same polynomial, re-expressed around its own $c_k$. Partitioning adds parameters without expressive benefit.
+
+\textbf{3. Taylor variants improve with $N$ but cannot catch global EDMD.} At $N=50$, Taylor-analytic achieves 6.7\%, Taylor-LS 8.4\%---$\sim 2\times$ worse than global EDMD deg-2.
+
+\textbf{4. Rollout stability:} At $N\geq 12$ all piecewise methods produce bounded rollouts; below that, some diverge numerically.
+
+\emph{Interpretation:} Lorenz is the wrong system to demonstrate clustering benefit. Any Koopman method with an adequate global lift dominates.
+
+\subsection{Pendulum results}
+
+Pendulum exhibits the opposite: $\sin(\theta)$ has no finite polynomial representation, so global EDMD must use high-degree lifts.
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Method & $N$ & Params & One-step & Rollout @ 10s \\
+\midrule
+Global EDMD, deg=2 & 1 & 36   & 0.398   & 0.892 rad \\
+Global EDMD, deg=4 & 1 & 225  & 0.059   & 0.273 \\
+Global EDMD, deg=6 & 1 & 784  & 0.004   & 0.180 \\
+Global EDMD, deg=8 & 1 & 2025 & \textbf{0.0001} & 0.174 \\
+\textbf{local-EDMD deg=2, $N$=2}  & 2  & \textbf{72}  & 0.015 & \textbf{0.159} \\
+local-EDMD deg=2, $N$=16          & 16 & 576          & 0.003 & 0.174 \\
+\textbf{Taylor-analytic, $N$=8}   & 8  & \textbf{48}  & 0.019 & \textbf{0.139} \\
+\textbf{Taylor-analytic, $N$=16}  & 16 & \textbf{96}  & 0.019 & \textbf{0.136} \\
+Taylor-LS, $N$=2  & 2  & 12 & 0.265 & 0.388 \\
+Taylor-LS, $N$=8  & 8  & 48 & 0.032 & 0.210 \\
+\bottomrule
+\end{tabular}
+\caption{Pendulum results, averaged over 5 rollout initial conditions.}
+\label{tab:pendulum}
+\end{table}
+
+\textbf{1. Parameter efficiency.} Local-EDMD deg-2 at $N=2$ (72 params) matches global EDMD deg-6 (784 params) on rollout---an $\sim 11\times$ parameter-efficiency gain.
+
+\textbf{2. Taylor-analytic wins when you have analytic $\Jv$.} At $N=16$, Taylor-analytic achieves 0.136 rad rollout, beating global EDMD deg-8 at $21\times$ fewer parameters.
+
+\textbf{3. The Taylor crossover is real and reproducible.} At $N=2$ (coarse), Taylor-LS (0.388 rad) beats Taylor-analytic (1.059 rad) by $2.7\times$. At $N=8$ (fine), Taylor-analytic (0.139) beats Taylor-LS (0.210) by $1.5\times$. As clusters shrink, Taylor's remainder shrinks quadratically and analytic $\Jv(c_k)$ becomes precise; fitting noise in LS then dominates.
+
+\textbf{4. Global EDMD saturates at degree $\sim 6$--$8$:} rollout error plateaus at $\sim 0.17$ rad (Euler discretization floor).
+
+\subsection{Visual comparison}
+
+\begin{figure}[H]
+\centering\includegraphics[width=0.9\textwidth]{figures/pendulum_comparison.png}
+\caption{Pendulum: one-step error and rollout error vs.\ parameter count. Local-EDMD deg-2 and Taylor-analytic dominate the parameter-efficiency frontier; Taylor-LS at small $N$ is dramatically better than Taylor-analytic at the same $N$.}
+\label{fig:pendulum-comparison}
+\end{figure}
+
+\begin{figure}[H]
+\centering\includegraphics[width=0.55\textwidth]{figures/pendulum_rollout.png}
+\caption{Rollout from $(\theta,\dot{\theta})=(2.8,0.0)$. Global EDMD deg-2 diverges; global EDMD deg-8 tracks truth; local EDMD deg-2 $N=4$ is visually indistinguishable from global deg-8 at $\sim 14\times$ fewer parameters.}
+\label{fig:pendulum-rollout}
+\end{figure}
+
+\section{Discussion}
+
+\subsection{When does each variant win?}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{lll}
+\toprule
+System character & Analytic $f,\Jv$? & Best variant \\
+\midrule
+Globally polynomial, low degree & --- & Global EDMD (no partitioning) \\
+Non-polynomial, physics known, fine $N$ & Yes & Taylor-analytic \\
+Non-polynomial, physics known, coarse $N$ & Yes & Taylor-LS \\
+Non-polynomial, data-only & No & Taylor-LS or local-EDMD \\
+Highly non-polynomial, rich local structure & No & Local-EDMD, degree $\geq 2$ \\
+\bottomrule
+\end{tabular}
+\caption{Decision rule for variant selection.}
+\end{table}
+
+\subsection{Parameter efficiency}
+
+The framework's main practical selling point is parameter efficiency on non-polynomial systems. Global polynomial Koopman methods must use high degree to approximate $\sin,\exp,\mathrm{sign},\tanh$. The parameter count scales as $\binom{d+p}{p}^2$. Clustering into $N$ regions with local degree-$p$ lifts gives $N\cdot\binom{d+p}{p}^2$; per-cluster degree can be much smaller because each cluster's data span is narrower. We observed $10$--$20\times$ savings on pendulum.
+
+\subsection{Limitations}
+
+\textbf{Non-monotone ELBO at high $N$:} Dead-cluster pruning is a discrete model-change step that drops ELBO by $O(\log N)$---an artifact, not a bug. The Taylor-analytic GEM structure can produce small ELBO drops.
+
+\textbf{Center update in local EDMD:} Proximity-only; the residual gradient w.r.t.\ $c_k$ involves $\nabla_{c_k}\Phiv(x-c_k)$, which is polynomial and algebraically heavy to close.
+
+\textbf{Cluster boundary handling:} At test time we assign clusters by proximity alone (lacking $f(x)$ observations). This is a mild distribution shift.
+
+\textbf{Lyapunov horizon:} For chaotic systems, rollout error grows exponentially regardless of model quality.
+
+\section{Related Work}
+
+\textbf{Mixture of Experts} (Jacobs, Jordan, Nowlan, Hinton 1991; Jordan \& Jacobs 1994): local experts gated by position. Most MoE formulations are conditional; ours is joint-generative, enabling Bayesian model selection over $N$.
+
+\textbf{Piecewise Affine System Identification} (Bemporad, Ferrari-Trecate, Muselli 2001; Ferrari-Trecate et al.\ 2003; Paoletti et al.\ 2007): identifies piecewise affine dynamics via k-means clustering and local regression. We generalize with soft EM-based clustering and Bayesian priors.
+
+\textbf{Switching Linear Dynamical Systems} (Fox, Sudderth, Jordan, Willsky 2011; Ghahramani \& Hinton 2000): regime-switching temporal models. We share the multiple-local-regimes premise but focus on phase-space rather than temporal segmentation.
+
+\textbf{EDMD and Koopman modeling} (Williams, Kevrekidis, Rowley 2015; Klus et al.\ 2020; Brunton, Budi{\v{s}}i{\'c}, Kaiser, Kutz 2022): fits Koopman operators globally. Our local-EDMD can be seen as cluster-wise EDMD with soft assignments.
+
+\textbf{Cluster-based reduced-order modeling} (Kaiser et al.\ 2014): cluster phase space, build ROMs per cluster. We share the philosophy but use a joint likelihood aligning clustering with model fidelity.
+
+Specific contributions: (i) joint-likelihood clustering criterion; (ii) unified modular framework for local-model parameterization; (iii) NIW-conjugate Bayesian model selection; (iv) empirical characterization of the parameterization trade-off.
+
+\section{Conclusion and Future Work}
+
+We have developed a residual-aware Bayesian clustering framework for piecewise local modeling of nonlinear vector fields. The framework generalizes standard GMM by introducing a joint likelihood over position and vector-field observation: regions are assigned based on both geometric proximity and local-model prediction accuracy. The local-model parameterization is modular, supporting physics-grounded Taylor (analytic Jacobian), data-driven affine regression (LS-fit), or Koopman lifting per cluster (local EDMD).
+
+Three practically-important findings: (i) on globally-polynomial systems, partitioning does not help; (ii) on non-polynomial systems, partitioning delivers $10$--$20\times$ parameter-efficiency gains over global Koopman; (iii) the analytic-vs-LS trade-off exhibits a parameterization-level crossover---analytic Jacobians win at fine $N$; LS-fit Jacobians win at coarse $N$.
+
+\paragraph{Future Work.} (i) Stronger test systems: chaotic driven pendulum, coupled oscillators, neuronal models, stick-slip friction---settings with multiple distinct Koopman-invariant subspaces. (ii) Control-theoretic extensions: EDMDc per cluster. (iii) Automatic per-cluster lift degree selection. (iv) Rigorous ELBO handling for pruning events. (v) Non-isotropic residual covariance $\Sv_k^{\mathrm{res}}$.
+
+\paragraph{Code and data.} Implementations live in \texttt{em.py} (Taylor-analytic), \texttt{em\_hybrid.py} (Taylor-LS), and \texttt{em\_local\_edmd.py} (local EDMD). Validation scripts: \texttt{validation\_sweep\_N.py}, \texttt{validation\_pendulum.py}.
+
+\begin{thebibliography}{99}
+
+\bibitem{bemporad2001observability} A.~Bemporad, G.~Ferrari-Trecate, M.~Muselli. Observability and controllability of piecewise affine and hybrid systems. \textit{IEEE Trans.\ Aut.\ Control}, 46(12):1864--1876, 2001.
+
+\bibitem{brunton2022modern} S.~L.~Brunton, M.~Budi{\v{s}}i{\'c}, E.~Kaiser, J.~N.~Kutz. Modern Koopman theory for dynamical systems. \textit{SIAM Review}, 64(2):229--340, 2022.
+
+\bibitem{dempster1977maximum} A.~P.~Dempster, N.~M.~Laird, D.~B.~Rubin. Maximum likelihood from incomplete data via the EM algorithm. \textit{J.~Roy.\ Statist.\ Soc.~B}, 39(1):1--38, 1977.
+
+\bibitem{ferrari2003clustering} G.~Ferrari-Trecate, M.~Muselli, D.~Liberati, M.~Morari. A clustering technique for the identification of piecewise affine systems. \textit{Automatica}, 39(2):205--217, 2003.
+
+\bibitem{fox2011bayesian} E.~B.~Fox, E.~B.~Sudderth, M.~I.~Jordan, A.~S.~Willsky. Bayesian nonparametric inference of switching dynamic linear models. \textit{IEEE Trans.\ Signal Proc.}, 59(4):1569--1585, 2011.
+
+\bibitem{ghahramani2000variational} Z.~Ghahramani, G.~E.~Hinton. Variational learning for switching state-space models. \textit{Neural Comput.}, 12(4):831--864, 2000.
+
+\bibitem{jacobs1991adaptive} R.~A.~Jacobs, M.~I.~Jordan, S.~J.~Nowlan, G.~E.~Hinton. Adaptive mixtures of local experts. \textit{Neural Comput.}, 3(1):79--87, 1991.
+
+\bibitem{jordan1994hierarchical} M.~I.~Jordan, R.~A.~Jacobs. Hierarchical mixtures of experts and the EM algorithm. \textit{Neural Comput.}, 6(2):181--214, 1994.
+
+\bibitem{kaiser2014cluster} E.~Kaiser, B.~R.~Noack, L.~Cordier, A.~Spohn, M.~Segond, M.~Abel, G.~Daviller, J.~{\"O}sth, S.~Krajnovi{\'c}, R.~K.~Niven. Cluster-based reduced-order modelling of a mixing layer. \textit{J.~Fluid Mech.}, 754:365--414, 2014.
+
+\bibitem{klus2020data} S.~Klus, F.~N{\"u}ske, S.~Peitz, J.~H.~Niemann, C.~Clementi, C.~Sch{\"u}tte. Data-driven approximation of the Koopman generator. \textit{Physica D}, 406:132416, 2020.
+
+\bibitem{koopman1931hamiltonian} B.~O.~Koopman. Hamiltonian systems and transformation in Hilbert space. \textit{PNAS}, 17(5):315--318, 1931.
+
+\bibitem{lorenz1963deterministic} E.~N.~Lorenz. Deterministic nonperiodic flow. \textit{J.~Atmos.\ Sci.}, 20(2):130--141, 1963.
+
+\bibitem{paoletti2007identification} S.~Paoletti, A.~L.~Juloski, G.~Ferrari-Trecate, R.~Vidal. Identification of hybrid systems: A tutorial. \textit{Eur.\ J.~Control}, 13(2--3):242--260, 2007.
+
+\bibitem{williams2015data} M.~O.~Williams, I.~G.~Kevrekidis, C.~W.~Rowley. A data-driven approximation of the Koopman operator: Extending dynamic mode decomposition. \textit{J.~Nonlinear Sci.}, 25(6):1307--1346, 2015.
+
+\end{thebibliography}
+
+\end{document}

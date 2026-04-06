@@ -1,0 +1,889 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{enumitem}
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}[section]
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}[section]
+\newtheorem{intuition}{Intuition}[section]
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Sv}{\boldsymbol{\Sigma}}
+\newcommand{\Jv}{\boldsymbol{J}}
+\newcommand{\Mv}{\boldsymbol{M}}
+\newcommand{\Phiv}{\boldsymbol{\Phi}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\Tr}{\operatorname{Tr}}
+\newcommand{\KL}{\mathrm{KL}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\newenvironment{keyidea}{\par\medskip\noindent\textbf{Key idea.} }{\par\medskip}
+\newenvironment{derivation}{\par\medskip\noindent\textbf{Derivation.} }{\par\medskip}
+
+\title{Residual-Aware Bayesian Clustering:\\[0.3em]
+\large Complete Derivations from First Principles}
+\author{Lorenzo Tomaz\\AE Studio}
+\date{}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% =========================================================================
+\section{Probability Densities and Likelihood}
+% =========================================================================
+
+\subsection{The Gaussian density}
+
+A $d$-dimensional Gaussian (normal) distribution with mean $\mu\in\R^d$ and covariance $\Sv\in\R^{d\times d}$ (symmetric positive definite) has density
+\begin{equation}
+  \mathcal{N}(x;\mu,\Sv) = \frac{1}{(2\pi)^{d/2}|\Sv|^{1/2}}\exp\!\Bigl(-\frac{1}{2}(x-\mu)^\top\Sv^{-1}(x-\mu)\Bigr).
+\end{equation}
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item The normalizer $(2\pi)^{d/2}|\Sv|^{1/2}$ ensures $\int_{\R^d}\mathcal{N}(x;\mu,\Sv)\,dx=1$.
+  \item The exponent $-\frac{1}{2}(x-\mu)^\top\Sv^{-1}(x-\mu)$ is a quadratic form measuring ``distance'' from $\mu$ in the metric defined by $\Sv^{-1}$. Points far from $\mu$ (in the $\Sv$-metric) get low density.
+  \item The \textbf{precision matrix} $\Sv^{-1}$ controls the shape: large eigenvalues of $\Sv^{-1}$ (small eigenvalues of $\Sv$) mean the distribution is narrow in that direction.
+\end{itemize}
+
+\begin{intuition}
+The Gaussian is the maximum-entropy distribution for a given mean and covariance. If all you know about a random variable is its mean and spread, the Gaussian is the ``least-assuming'' density consistent with those constraints. This is why it appears everywhere as a default model for continuous noise.
+\end{intuition}
+
+\subsection{Likelihood: turning a distribution into a score}
+
+Given a fixed observation $x_{\mathrm{obs}}\in\R^d$, we can \emph{evaluate} the density at that point:
+\begin{equation}
+  \ell(\mu,\Sv) = \mathcal{N}(x_{\mathrm{obs}};\mu,\Sv).
+\end{equation}
+This number $\ell$ is called the \textbf{likelihood} of the parameters $(\mu,\Sv)$ given the data $x_{\mathrm{obs}}$. Note:
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item The observation $x_{\mathrm{obs}}$ is \textbf{fixed} (it's the data we collected).
+  \item The parameters $(\mu,\Sv)$ are \textbf{variable} (we want to find the best ones).
+  \item The likelihood is \emph{not} a probability distribution over $(\mu,\Sv)$---it does not integrate to 1 over parameter space.
+\end{itemize}
+
+With $P$ independent observations $x_1,\dots,x_P$, the joint likelihood is the product:
+\begin{equation}
+  \ell(\mu,\Sv) = \prod_{i=1}^P \mathcal{N}(x_i;\mu,\Sv).
+\end{equation}
+Taking the logarithm (which preserves the location of the maximum):
+\begin{equation}
+  \log\ell(\mu,\Sv) = \sum_{i=1}^P \log\mathcal{N}(x_i;\mu,\Sv) = -\frac{Pd}{2}\log 2\pi - \frac{P}{2}\log|\Sv| - \frac{1}{2}\sum_i (x_i-\mu)^\top\Sv^{-1}(x_i-\mu).
+\end{equation}
+
+\begin{keyidea}
+\textbf{Maximum likelihood estimation (MLE)}: choose $(\mu,\Sv)$ to maximize $\log\ell$. For a single Gaussian, the MLE is the sample mean $\hat{\mu}=\frac{1}{P}\sum_i x_i$ and sample covariance $\hat{\Sv}=\frac{1}{P}\sum_i (x_i-\hat{\mu})(x_i-\hat{\mu})^\top$. This is tractable and has a unique closed-form solution.
+\end{keyidea}
+
+\subsection{Conditional distributions}
+
+A \textbf{conditional distribution} $p(y\mid x)$ is a density over $y$ that depends on a given value of $x$. It satisfies $\int p(y\mid x)\,dy=1$ for each fixed $x$. The dependence on $x$ enters through the parameters of the density.
+
+\begin{example}[Linear regression]
+$y\mid x \sim \mathcal{N}(w^\top x, \sigma^2)$. The mean $w^\top x$ depends on the input $x$; the variance $\sigma^2$ does not. For a given $x$, this is a proper Gaussian density over $y$.
+\end{example}
+
+\begin{example}[Our residual model]
+Suppose we have a dynamical system $\dot{x}=f(x)$ and we have partitioned phase space into $N$ clusters. Each cluster $k$ carries a \textbf{local model} $L_k\colon\R^d\to\R^d$---a function that, given any point $x$, outputs a \emph{prediction} of the vector field $f(x)$. The local model is a deterministic function defined by the cluster's parameters; it is \emph{not} a random variable.
+
+Concretely, $L_k$ is an approximation of $f$ that is built from the cluster's center $c_k$ and some local dynamical parameters (a Jacobian matrix, an affine operator, or a Koopman operator---the exact form will be specified in Section~\ref{sec:our-model}). For now, all that matters is: \textbf{given $c_k$ and the local parameters, $L_k(x)$ is a computable function that takes a point $x\in\R^d$ and returns a vector in $\R^d$}. For example, in the simplest case (Taylor linearization):
+\begin{equation}
+  L_k(x) = f(c_k) + \Jv(c_k)(x - c_k),
+\end{equation}
+where $f(c_k)\in\R^d$ is the vector field evaluated at the center (a known vector) and $\Jv(c_k)\in\R^{d\times d}$ is the Jacobian matrix at the center (a known matrix). The computation is: subtract the center, multiply by the Jacobian, add the vector-field value at the center. The result is an affine function of $x$.
+
+With $L_k$ defined, we can specify the conditional distribution:
+\begin{equation}
+  f_{\mathrm{obs}}(x_i) \mid x_i,\, z_i=k \;\sim\; \mathcal{N}(L_k(x_i),\;\sigma^2 I).
+\end{equation}
+This says: given the input $x_i$ and the assignment to cluster $k$, the observed vector field $f_{\mathrm{obs}}(x_i)$ is a Gaussian random variable with:
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item \textbf{Center (``mean'')} $= L_k(x_i)$. This is the local model's prediction of $f$ at $x_i$. It is computed by evaluating the function $L_k$ at the specific input $x_i$---\textbf{it is a single deterministic value, not an average over anything}. Different inputs give different values.
+
+  We call it ``the mean'' only because of Gaussian convention: in $\mathcal{N}(y;\mu,\Sv)$, the parameter $\mu$ is traditionally called ``the mean'' because if one drew infinitely many samples $y_1,y_2,\dots$ from this distribution, their sample average would converge to $\mu$. But $\mu$ itself is just a location parameter---the point where the bell curve is centered. In our context, a less ambiguous name is \textbf{the predicted value}: $L_k(x_i)$ is the value that the local model predicts the vector field should take at $x_i$, and the Gaussian is centered there.
+
+  \item \textbf{Covariance} $= \sigma^2 I$. This is a fixed isotropic matrix that does \emph{not} depend on $x_i$. It sets the scale of ``tolerable prediction error''---how far the actual observation $f_{\mathrm{obs}}(x_i)$ can be from the prediction $L_k(x_i)$ before the likelihood becomes small.
+\end{itemize}
+For a given $x_i$ and $k$, this is a proper Gaussian density over $f_{\mathrm{obs}}\in\R^d$ (integrates to 1 over $\R^d$).
+
+When we evaluate this density at the \emph{observed} value $f_{\mathrm{obs}}(x_i)$, we get a \textbf{likelihood value}:
+\begin{equation}
+  \mathcal{N}(f_{\mathrm{obs}}(x_i);\,L_k(x_i),\,\sigma^2 I) = (2\pi\sigma^2)^{-d/2}\exp\!\Bigl(-\frac{\|f_{\mathrm{obs}}(x_i)-L_k(x_i)\|^2}{2\sigma^2}\Bigr).
+  \label{eq:resid-lik}
+\end{equation}
+This number depends on three things:
+\begin{enumerate}[leftmargin=*,itemsep=0pt]
+  \item $f_{\mathrm{obs}}(x_i)$: the observed vector field (data---fixed).
+  \item $L_k(x_i)$: the local model's prediction (computed from current cluster parameters and input $x_i$).
+  \item $\sigma^2$: the noise scale (hyperparameter).
+\end{enumerate}
+It measures ``how well does cluster $k$'s local model predict the vector field at $x_i$?'' A small squared error $\|f_{\mathrm{obs}}(x_i)-L_k(x_i)\|^2$ gives a large likelihood; a large squared error gives a small likelihood.
+\end{example}
+
+% =========================================================================
+\section{Latent Variable Models and the Marginal Likelihood}
+% =========================================================================
+
+\subsection{Why latent variables?}
+
+A \textbf{mixture model} assumes that each data point $x_i$ was generated by one of $N$ components, but we don't observe which one. The identity of the generating component is a \textbf{latent (hidden) variable} $z_i\in\{1,\dots,N\}$.
+
+The generative process for a standard Gaussian mixture:
+\begin{enumerate}[leftmargin=*,itemsep=0pt]
+  \item Draw $z_i\sim\mathrm{Categorical}(\pi_1,\dots,\pi_N)$, where $\pi_k\geq 0$, $\sum_k\pi_k=1$.
+  \item Draw $x_i\sim\mathcal{N}(\mu_{z_i},\Sv_{z_i})$.
+\end{enumerate}
+We observe $x_i$ but not $z_i$. To write the density of the observed variable $x_i$ alone, we need to \textbf{marginalize out} the latent variable $z_i$.
+
+\begin{definition}[Marginalization]
+If two variables $A$ and $B$ have a joint distribution $p(A,B)$, the \textbf{marginal distribution} of $A$ is obtained by summing (or integrating) over all possible values of $B$:
+\begin{equation}
+  p(A) = \sum_{\text{all } b} p(A, B=b).
+\end{equation}
+This ``removes'' $B$ from the joint by accounting for every possibility.
+\end{definition}
+
+In our case, $A=x_i$ (observed) and $B=z_i$ (latent, takes values $1,\dots,N$). The marginalization formula gives:
+\begin{equation}
+  p(x_i\mid\theta) = \sum_{k=1}^N p(x_i, z_i=k \mid\theta).
+  \label{eq:marginal-general}
+\end{equation}
+Each term $p(x_i, z_i=k\mid\theta)$ is the joint probability of observing $x_i$ \emph{and} having it come from component $k$. We can decompose this joint using the \textbf{chain rule} (also called the product rule) of probability:
+\begin{equation}
+  p(x_i, z_i=k\mid\theta) = p(z_i=k\mid\theta) \cdot p(x_i\mid z_i=k, \theta).
+  \label{eq:chain-rule-gmm}
+\end{equation}
+This says: the probability of ``$x_i$ was generated by component $k$'' equals the probability of ``component $k$ was chosen'' times the probability of ``component $k$ generated $x_i$.'' Now we substitute what we know about each factor:
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item $p(z_i=k\mid\theta) = \pi_k$ \quad (by the Categorical prior on $z_i$).
+  \item $p(x_i\mid z_i=k,\theta) = \mathcal{N}(x_i;\mu_k,\Sv_k)$ \quad (by the Gaussian emission model of component $k$).
+\end{itemize}
+Substituting into~\eqref{eq:chain-rule-gmm} and then into~\eqref{eq:marginal-general}:
+\begin{equation}
+  p(x_i\mid\theta) = \sum_{k=1}^N \pi_k\,\mathcal{N}(x_i;\mu_k,\Sv_k).
+\end{equation}
+This is the \textbf{marginal density} of $x_i$---a weighted sum of Gaussians, where $\theta=(\pi,\{\mu_k,\Sv_k\}_{k=1}^N)$ collects all parameters. Each term contributes the density of $x_i$ under component $k$, weighted by the prior probability $\pi_k$ of that component.
+
+\subsection{Why not just maximize the marginal likelihood?}
+
+The log of the marginal likelihood for all data is
+\begin{equation}
+  \log p(X\mid\theta) = \sum_{i=1}^P \log\Bigl(\sum_{k=1}^N \pi_k\,\mathcal{N}(x_i;\mu_k,\Sv_k)\Bigr).
+  \label{eq:marginal-ll}
+\end{equation}
+This expression contains a $\log$ of a sum, and we claim it has no closed-form maximizer. Let us see concretely why.
+
+\paragraph{For a single Gaussian ($N=1$), there is no problem.} The sum has one term, so
+\[
+  \log p(X\mid\theta) = \sum_i \log\mathcal{N}(x_i;\mu,\Sv).
+\]
+The $\log$ applies directly to a single Gaussian---no sum inside. The derivative with respect to $\mu$ is:
+\[
+  \frac{\partial}{\partial\mu}\sum_i\log\mathcal{N}(x_i;\mu,\Sv) = \sum_i\Sv^{-1}(x_i-\mu)=0 \quad\Longrightarrow\quad \mu = \frac{1}{P}\sum_i x_i.
+\]
+One equation, one unknown, closed-form solution.
+
+\paragraph{For a mixture ($N>1$), the parameters are coupled.} Now differentiate with respect to $\mu_k$ using the chain rule for $\log(\sum_j\cdots)$:
+\begin{equation}
+  \frac{\partial}{\partial\mu_k}\log\!\Bigl(\sum_j\pi_j\mathcal{N}(x_i;\mu_j,\Sv_j)\Bigr)
+  = \frac{\pi_k\,\Sv_k^{-1}(x_i-\mu_k)\,\mathcal{N}(x_i;\mu_k,\Sv_k)}{\sum_j\pi_j\,\mathcal{N}(x_i;\mu_j,\Sv_j)}.
+\end{equation}
+The denominator $\sum_j\pi_j\mathcal{N}(x_i;\mu_j,\Sv_j)$ contains \textbf{every cluster's parameters}---all $\mu_j,\Sv_j,\pi_j$. Setting the derivative to zero for $\mu_k$ gives an equation that involves $\mu_1,\dots,\mu_N$, $\Sv_1,\dots,\Sv_N$, and $\pi_1,\dots,\pi_N$ simultaneously. It is a system of coupled nonlinear equations with no closed-form solution.
+
+\begin{remark}
+The ratio $\pi_k\mathcal{N}(x_i;\mu_k,\Sv_k)/\sum_j\pi_j\mathcal{N}(x_i;\mu_j,\Sv_j)$ is exactly the responsibility $r_{ik}$. But here it is a \emph{function of all parameters}, not a fixed number. That is the coupling: you cannot solve for $\mu_k$ without knowing $r_{ik}$, and you cannot compute $r_{ik}$ without knowing all the $\mu_j$. EM breaks this circularity by alternating: fix $r_{ik}$ (E-step), then solve for $\mu_k$ (M-step), repeat.
+\end{remark}
+
+\begin{keyidea}
+Latent variable models have intractable marginal likelihoods because the $\log$ of a sum couples all cluster parameters together. The EM algorithm breaks this coupling by replacing $\log(\text{sum})$ with $\text{sum}(\log)$ (via the ELBO), at the cost of introducing an auxiliary distribution~$q$ that must be iteratively updated.
+\end{keyidea}
+
+% =========================================================================
+\section{The Evidence Lower Bound (ELBO)}
+% =========================================================================
+
+\subsection{The problem: a log of a sum}
+
+Our goal is to maximize $\log p(X\mid\theta)$~\eqref{eq:marginal-ll} over $\theta$. But this expression contains a \emph{logarithm of a sum}, which has no closed-form maximizer. We need a workaround.
+
+The strategy: construct a simpler function---a \textbf{lower bound} on $\log p(X\mid\theta)$---that \emph{is} tractable to maximize. If we can make this bound tight (close to the true value), then maximizing the bound approximately maximizes the true objective.
+
+\subsection{Introducing a helper distribution}
+
+The key trick is to introduce an auxiliary distribution $q$ over the latent variables. Let $q(z_i)$ be \emph{any} probability distribution over $\{1,\dots,N\}$---one for each data point $i$. We write $q(z_i=k)$ for the probability that $q$ assigns point $i$ to cluster $k$. The only requirements are $q(z_i=k)\geq 0$ and $\sum_k q(z_i=k)=1$.
+
+\begin{intuition}
+Think of $q$ as our current ``guess'' at the cluster assignments. It does not have to be the true posterior---it can be \emph{anything}. The ELBO derivation works for any $q$, and we will later choose $q$ to make the bound as tight as possible.
+\end{intuition}
+
+\subsection{Step-by-step derivation}
+
+We start from the marginal log-likelihood for a single data point and work through five algebraic steps.
+
+\paragraph{Step 1: rewrite using marginalization.} The marginal $p(x_i\mid\theta)$ is a sum over the latent variable (as derived in Section~2.1):
+\begin{equation}
+  \log p(x_i\mid\theta) = \log\sum_{k=1}^N p(x_i,z_i=k\mid\theta).
+  \label{eq:elbo-step1}
+\end{equation}
+This is just the log of the marginal density. So far, nothing new.
+
+\paragraph{Step 2: multiply and divide by $q(z_i=k)$ inside the sum.} For any $q$ with $q(z_i=k)>0$ for all $k$:
+\begin{equation}
+  \log\sum_k p(x_i,z_i=k\mid\theta) = \log\sum_k q(z_i=k)\cdot\frac{p(x_i,z_i=k\mid\theta)}{q(z_i=k)}.
+  \label{eq:elbo-step2}
+\end{equation}
+This is a purely algebraic identity---multiplying and dividing by the same positive number changes nothing. \textbf{Why do we do this?} Because the sum $\sum_k q(z_i=k)\cdot(\cdots)$ is a \textbf{weighted average} (an expectation under $q$), and weighted averages interact nicely with concave functions like $\log$ via Jensen's inequality.
+
+\paragraph{Step 3: apply Jensen's inequality to get a lower bound.}
+
+Before stating the inequality, let us understand \textbf{why we want a lower bound at all}.
+
+Our goal is to find the parameters $\theta$ that maximize $\log p(X\mid\theta)$. But we cannot maximize $\log p(X\mid\theta)$ directly because it contains a log-of-a-sum (equation~\eqref{eq:elbo-step1}) that has no closed-form solution.
+
+Suppose instead we had a simpler function $\mathcal{L}(q,\theta)$ with two properties:
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+  \item \textbf{It is a lower bound:} $\mathcal{L}(q,\theta)\leq\log p(X\mid\theta)$ for all $q,\theta$.
+  \item \textbf{It can be made tight:} there exists a choice of $q$ such that $\mathcal{L}(q,\theta)=\log p(X\mid\theta)$ exactly.
+\end{enumerate}
+If we have such a function, we can use the following two-step strategy to maximize $\log p(X\mid\theta)$:
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item \textbf{Tighten the bound} (choose $q$ to close the gap): after this step, $\mathcal{L}(q,\theta)=\log p(X\mid\theta)$---the bound touches the true objective.
+  \item \textbf{Push the bound up} (choose $\theta$ to increase $\mathcal{L}$): after this step, $\mathcal{L}$ increases. Since the bound was tight before this step, the true objective $\log p(X\mid\theta)$ must also increase (or stay the same).
+\end{itemize}
+Alternating these two steps gives a monotonically non-decreasing sequence $\log p(X\mid\theta^{(0)})\leq\log p(X\mid\theta^{(1)})\leq\cdots$. \textbf{This is the EM algorithm:} the first step is the E-step, the second is the M-step, and $\mathcal{L}$ is the ELBO.
+
+So: we need a lower bound not for its own sake, but because it gives us a \textbf{tractable surrogate} that we can optimize in place of the intractable true objective, with the guarantee that each optimization cycle improves (or maintains) the true objective.
+
+Now we construct such a bound using Jensen's inequality.
+
+\begin{definition}[Jensen's inequality]
+If $\varphi$ is a \textbf{concave} function (curves downward, like $\log$) and $W_1,\dots,W_N$ are non-negative weights summing to~1, then for any values $a_1,\dots,a_N$:
+\begin{equation}
+  \varphi\!\Bigl(\sum_k W_k\, a_k\Bigr) \geq \sum_k W_k\,\varphi(a_k).
+  \label{eq:jensen}
+\end{equation}
+In words: the function of the weighted average is $\geq$ the weighted average of the function.
+\end{definition}
+
+We apply~\eqref{eq:jensen} to~\eqref{eq:elbo-step2} with $\varphi=\log$ (which is concave), $W_k=q(z_i=k)$, and $a_k=p(x_i,z_i=k\mid\theta)/q(z_i=k)$:
+\begin{equation}
+  \log\sum_k q(z_i=k)\cdot\frac{p(x_i,z_i=k\mid\theta)}{q(z_i=k)} \;\geq\; \sum_k q(z_i=k)\cdot\log\frac{p(x_i,z_i=k\mid\theta)}{q(z_i=k)}.
+  \label{eq:elbo-step3}
+\end{equation}
+The $\log$ has moved \textbf{inside} the sum, at the cost of turning an equality into an inequality ($\geq$). The right-hand side is a lower bound on the left-hand side.
+
+\paragraph{Step 4: split the log of a ratio.} Using $\log(A/B)=\log A-\log B$:
+\begin{align}
+  \sum_k q(z_i=k)\log\frac{p(x_i,z_i=k\mid\theta)}{q(z_i=k)} &= \sum_k q(z_i=k)\log p(x_i,z_i=k\mid\theta) \notag \\
+  &\quad - \sum_k q(z_i=k)\log q(z_i=k).
+  \label{eq:elbo-step4}
+\end{align}
+The first sum is the expected joint log-likelihood under $q$. The second sum (with the minus sign) is the \textbf{entropy} of $q$, written $H[q]=-\sum_k q_k\log q_k$.
+
+\paragraph{Step 5: sum over all data points and define the ELBO.} Summing~\eqref{eq:elbo-step3}--\eqref{eq:elbo-step4} over $i=1,\dots,P$, and writing $r_{ik}=q(z_i=k)$:
+\begin{equation}
+  \log p(X\mid\theta) \;\geq\; \underbrace{\sum_{i,k} r_{ik}\log p(x_i,z_i=k\mid\theta)}_{\text{expected complete-data log-likelihood}} \;+\; \underbrace{\Bigl(-\sum_{i,k} r_{ik}\log r_{ik}\Bigr)}_{\text{entropy } H[q]} \;\equiv\; \mathrm{ELBO}(q,\theta).
+  \label{eq:elbo}
+\end{equation}
+
+\begin{keyidea}
+The ELBO is a \textbf{lower bound} on the log marginal likelihood:
+$\log p(X\mid\theta)\geq\mathrm{ELBO}(q,\theta)$ for \emph{any} distribution $q$ over the latent variables.
+
+This bound holds because Jensen's inequality introduced a $\geq$ at Step~3. The bound is tight (equality holds) when $q(z_i=k)=p(z_i=k\mid x_i,\theta)$---i.e., when $q$ equals the true posterior. In that case the gap is zero:
+\begin{equation}
+  \log p(X\mid\theta) - \mathrm{ELBO}(q,\theta) = \KL(q(Z)\,\|\,p(Z\mid X,\theta)) \geq 0,
+\end{equation}
+where $\KL$ is the Kullback-Leibler divergence (a non-negative measure of ``distance'' between two distributions; it equals zero if and only if the two distributions are identical).
+\end{keyidea}
+
+\begin{intuition}
+Why does this help? Because the ELBO has $\log p(x_i,z_i=k\mid\theta)$ (joint) instead of $\log\sum_k p(x_i,z_i=k\mid\theta)$ (marginal). The joint factors as $p(z_i=k)\cdot p(x_i\mid z_i=k)$ (chain rule), and the log of a product is a sum of logs---no more ``log of a sum.'' This makes the M-step tractable.
+\end{intuition}
+
+\subsection{Decomposing the ELBO}
+
+To make the ELBO concrete, we need to expand $\log p(x_i,z_i=k\mid\theta)$. Using the chain rule~\eqref{eq:chain-rule-gmm}:
+\begin{equation}
+  p(x_i,z_i=k\mid\theta) = p(z_i=k\mid\theta)\cdot p(x_i\mid z_i=k,\theta).
+\end{equation}
+Substituting our specific distributions (Categorical prior $\pi_k$, Gaussian emission):
+\begin{equation}
+  p(x_i,z_i=k\mid\theta) = \pi_k\cdot\mathcal{N}(x_i;\mu_k,\Sv_k).
+\end{equation}
+Taking the log: $\log p(x_i,z_i=k\mid\theta)=\log\pi_k+\log\mathcal{N}(x_i;\mu_k,\Sv_k)$. Plugging into the ELBO~\eqref{eq:elbo}:
+\begin{align}
+  \mathrm{ELBO}(q,\theta) &= \sum_{i,k} r_{ik}\log\pi_k + \sum_{i,k} r_{ik}\log\mathcal{N}(x_i;\mu_k,\Sv_k) - \sum_{i,k} r_{ik}\log r_{ik},
+\end{align}
+where we wrote $r_{ik}=q(z_i=k)$. The three terms are:
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+  \item \textbf{Assignment log-likelihood}: $\sum_{i,k} r_{ik}\log\pi_k$. Prefers configurations where points are assigned to clusters with large $\pi_k$.
+  \item \textbf{Data log-likelihood}: $\sum_{i,k} r_{ik}\log\mathcal{N}(x_i;\mu_k,\Sv_k)$. Prefers configurations where each point is close to its assigned center.
+  \item \textbf{Entropy}: $-\sum_{i,k} r_{ik}\log r_{ik}$. Prefers ``soft'' (uncertain) assignments. This prevents the trivial solution of putting all mass on one cluster.
+\end{enumerate}
+
+% =========================================================================
+\section{The EM Algorithm}
+% =========================================================================
+
+\subsection{E-step: optimize over $q$}
+
+Fix $\theta$. We want $q^*=\argmax_q \mathrm{ELBO}(q,\theta)$. Since the gap is the KL divergence $\KL(q\|p(Z\mid X,\theta))$, setting $q^*(z_i=k)=p(z_i=k\mid x_i,\theta)$ makes $\KL=0$ and the ELBO equals $\log p(X\mid\theta)$ exactly.
+
+We compute this using \textbf{Bayes' theorem}.
+
+\begin{definition}[Bayes' theorem]
+For any two events or variables $A$ and $B$ with $p(B)>0$:
+\begin{equation}
+  p(A\mid B) = \frac{p(B\mid A)\,p(A)}{p(B)}.
+  \label{eq:bayes-general}
+\end{equation}
+In words: posterior $=$ (likelihood $\times$ prior) / evidence. The evidence $p(B)$ is a normalizing constant that ensures the posterior sums/integrates to~1.
+\end{definition}
+
+We apply~\eqref{eq:bayes-general} with $A = (z_i=k)$ and $B = x_i$:
+\begin{equation}
+  p(z_i=k\mid x_i,\theta) = \frac{p(x_i\mid z_i=k,\theta)\cdot p(z_i=k\mid\theta)}{p(x_i\mid\theta)}.
+  \label{eq:bayes-applied}
+\end{equation}
+Now we substitute each factor using what we know about our model:
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item \textbf{Prior:} $p(z_i=k\mid\theta) = \pi_k$ \quad (Categorical distribution over components).
+  \item \textbf{Likelihood:} $p(x_i\mid z_i=k,\theta) = \mathcal{N}(x_i;\mu_k,\Sv_k)$ \quad (Gaussian emission of component $k$).
+  \item \textbf{Evidence:} $p(x_i\mid\theta) = \sum_{j=1}^N p(x_i,z_i=j\mid\theta) = \sum_{j=1}^N \pi_j\,\mathcal{N}(x_i;\mu_j,\Sv_j)$ \quad (the marginal density, obtained by summing the joint over all components, as derived in Section~2.1).
+\end{itemize}
+Substituting into~\eqref{eq:bayes-applied}:
+\begin{equation}
+  r_{ik} = p(z_i=k\mid x_i,\theta) = \frac{\pi_k\,\mathcal{N}(x_i;\mu_k,\Sv_k)}{\sum_{j=1}^N \pi_j\,\mathcal{N}(x_i;\mu_j,\Sv_j)}.
+  \label{eq:estep-gmm}
+\end{equation}
+
+\begin{intuition}
+The responsibility $r_{ik}$ is the posterior probability that point $i$ belongs to cluster $k$. It is large when $x_i$ is close to $\mu_k$ (high $\mathcal{N}$ value) and $\pi_k$ is large (component is a priori likely). Points equidistant from two centers will have $r_{ik}\approx r_{ij}\approx 0.5$---soft assignment.
+\end{intuition}
+
+\subsection{M-step: optimize over $\theta$}
+
+Fix $q$ (i.e., fix the responsibilities $r_{ik}$). We want $\theta^*=\argmax_\theta \mathrm{ELBO}(q,\theta)$. Since the entropy term $H[q]=-\sum_{i,k}r_{ik}\log r_{ik}$ does not depend on $\theta$ (the $r_{ik}$ are fixed numbers), this is equivalent to maximizing the \textbf{expected complete-data log-likelihood}:
+\begin{equation}
+  Q(\theta) = \sum_{i,k} r_{ik}\log p(x_i,z_i=k\mid\theta).
+  \label{eq:Q-general}
+\end{equation}
+Now we expand $\log p(x_i,z_i=k\mid\theta)$ using the chain rule:
+\begin{align}
+  \log p(x_i,z_i=k\mid\theta) &= \log\bigl[p(z_i=k\mid\theta)\cdot p(x_i\mid z_i=k,\theta)\bigr] \notag \\
+  &= \log p(z_i=k\mid\theta) + \log p(x_i\mid z_i=k,\theta) \qquad\text{(log of a product = sum of logs)} \notag \\
+  &= \log\pi_k + \log\mathcal{N}(x_i;\mu_k,\Sv_k). \qquad\text{(substituting our specific distributions)}
+\end{align}
+Plugging back into~\eqref{eq:Q-general}:
+\begin{equation}
+  Q(\theta) = \sum_{i,k} r_{ik}\bigl[\log\pi_k + \log\mathcal{N}(x_i;\mu_k,\Sv_k)\bigr].
+\end{equation}
+
+\paragraph{Update for $\pi_k$:} Maximize $\sum_k(\sum_i r_{ik})\log\pi_k$ subject to $\sum_k\pi_k=1$. By Lagrange multipliers:
+\begin{equation}
+  \pi_k^{\mathrm{new}} = \frac{R_k}{P}, \qquad R_k = \sum_{i=1}^P r_{ik}.
+\end{equation}
+$R_k$ is the \textbf{effective mass} of cluster $k$---the total soft-assignment weight. The updated $\pi_k$ is just the fraction of total mass in cluster $k$.
+
+\paragraph{Update for $\mu_k$:} Maximize $\sum_i r_{ik}\log\mathcal{N}(x_i;\mu_k,\Sv_k)$ over $\mu_k$. The log-Gaussian contains $-\frac{1}{2}(x_i-\mu_k)^\top\Sv_k^{-1}(x_i-\mu_k)$. Taking the gradient:
+\begin{equation}
+  \nabla_{\mu_k}Q = \sum_i r_{ik}\Sv_k^{-1}(x_i-\mu_k) = 0 \quad\Longrightarrow\quad \mu_k^{\mathrm{new}} = \frac{\sum_i r_{ik}x_i}{R_k}.
+\end{equation}
+The new center is the \textbf{responsibility-weighted mean} of the data.
+
+\paragraph{Update for $\Sv_k$:} Maximize over $\Sv_k$. This involves the log-determinant and the quadratic form. Taking the matrix derivative and setting to zero:
+\begin{equation}
+  \Sv_k^{\mathrm{new}} = \frac{1}{R_k}\sum_i r_{ik}(x_i-\mu_k^{\mathrm{new}})(x_i-\mu_k^{\mathrm{new}})^\top.
+\end{equation}
+The new covariance is the \textbf{responsibility-weighted scatter} around the new mean.
+
+\begin{keyidea}
+\textbf{EM monotonicity:} Each E-step makes $\mathrm{ELBO}(q,\theta)=\log p(X\mid\theta)$ (closes the KL gap). Each M-step maximizes $Q(\theta)$ over $\theta$, which increases $\mathrm{ELBO}$ (and hence $\log p(X\mid\theta)$). The sequence of marginal likelihoods is non-decreasing:
+\[
+  \log p(X\mid\theta^{(0)}) \leq \log p(X\mid\theta^{(1)}) \leq \log p(X\mid\theta^{(2)}) \leq \cdots
+\]
+Convergence to a local maximum is guaranteed.
+\end{keyidea}
+
+% =========================================================================
+\section{Adding Bayesian Priors}
+% =========================================================================
+
+\subsection{Why priors?}
+
+MLE can overfit: with $N$ clusters and $P$ points, if a cluster contains very few points, its covariance estimate $\hat{\Sv}_k$ becomes singular (not invertible). Bayesian priors \textbf{regularize} by encoding prior beliefs about parameter ranges. The ELBO becomes:
+\begin{equation}
+  \mathrm{ELBO}(q,\theta) = \E_q[\log p(X,Z\mid\theta)] + H[q] + \log p(\theta),
+\end{equation}
+where $\log p(\theta)$ is the log-prior on all parameters. The M-step now maximizes $Q(\theta)+\log p(\theta)$, which is the \textbf{MAP (maximum a posteriori)} objective.
+
+\subsection{The Dirichlet prior on mixing weights}
+
+The mixing weights $\pi=(\pi_1,\dots,\pi_N)$ live on the probability simplex ($\pi_k\geq 0$, $\sum_k\pi_k=1$). The natural prior is the \textbf{Dirichlet distribution}:
+\begin{equation}
+  p(\pi\mid\alpha_0) = \frac{\Gamma(N\alpha_0)}{\Gamma(\alpha_0)^N}\prod_{k=1}^N \pi_k^{\alpha_0-1}.
+  \label{eq:dirichlet}
+\end{equation}
+
+The parameter $\alpha_0>0$ controls the prior's character:
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item $\alpha_0=1$: uniform prior on the simplex (all weight allocations equally likely).
+  \item $\alpha_0>1$: prefers $\pi$ near uniform ($\pi_k\approx 1/N$ for all $k$). Discourages empty clusters.
+  \item $\alpha_0<1$: \textbf{sparse-inducing}. Prefers $\pi$ concentrated on a few components, with many $\pi_k\approx 0$.
+\end{itemize}
+
+\begin{keyidea}
+We use $\alpha_0=0.5<1$ to encourage the model to \textbf{prune unused clusters}. Starting with $N$ larger than needed, the Dirichlet prior drives $\pi_k\to 0$ for redundant components. This is automatic model-complexity selection.
+\end{keyidea}
+
+\paragraph{MAP update for $\pi$:} Adding $\log p(\pi)=\sum_k(\alpha_0-1)\log\pi_k+\text{const}$ to the Lagrangian:
+\begin{equation}
+  \pi_k^{\mathrm{new}} = \frac{R_k+\alpha_0-1}{P+N(\alpha_0-1)}.
+  \label{eq:pi-map}
+\end{equation}
+When $\alpha_0<1$ and $R_k$ is small, $\pi_k$ can go negative; we clamp to $\pi_k\geq 10^{-10}$ and renormalize. In practice, clusters with $R_k<1$ are pruned (removed from the model entirely).
+
+\subsection{The Normal-Inverse-Wishart (NIW) prior on centers and covariances}
+
+For the center $c_k$ and covariance $\Sv_k$ of each cluster, we use the \textbf{NIW prior}:
+\begin{align}
+  \Sv_k &\sim \mathcal{IW}(\Psi_0,\nu_0), \\
+  c_k\mid\Sv_k &\sim \mathcal{N}(\mu_0,\Sv_k/\kappa_0),
+\end{align}
+where $\Psi_0\in\R^{d\times d}$ (positive definite scale matrix), $\nu_0>d-1$ (degrees of freedom), $\mu_0\in\R^d$ (prior mean), $\kappa_0>0$ (prior precision scaling).
+
+\begin{intuition}
+The NIW prior encodes:
+\begin{itemize}[leftmargin=*,itemsep=0pt]
+  \item $\mu_0$: ``we expect cluster centers near this point'' (set to the data mean).
+  \item $\kappa_0$: ``how strongly we believe that'' (small $\kappa_0$ = weak prior = centers free to move; large $\kappa_0$ = strong pull toward $\mu_0$).
+  \item $\Psi_0$: ``we expect covariances of roughly this scale'' (set proportional to identity).
+  \item $\nu_0$: ``how confident we are about the covariance'' (small $\nu_0$ = vague prior; large = confident).
+\end{itemize}
+\end{intuition}
+
+\paragraph{Why ``conjugate''?} A prior is \textbf{conjugate} to a likelihood if the posterior has the same functional form as the prior. For a Gaussian likelihood with NIW prior, the posterior on $(c_k,\Sv_k)$ is also NIW with updated parameters:
+\begin{align}
+  \kappa_n &= \kappa_0+R_k, \qquad \nu_n = \nu_0+R_k, \\
+  \mu_n &= \frac{\kappa_0\mu_0+R_k\bar{x}_k}{\kappa_n}, \label{eq:niw-post-mean} \\
+  \Psi_n &= \Psi_0 + S_k + \frac{\kappa_0 R_k}{\kappa_n}(\bar{x}_k-\mu_0)(\bar{x}_k-\mu_0)^\top, \label{eq:niw-post-psi}
+\end{align}
+where $\bar{x}_k=\frac{1}{R_k}\sum_i r_{ik}x_i$ is the responsibility-weighted mean and $S_k=\sum_i r_{ik}(x_i-\bar{x}_k)(x_i-\bar{x}_k)^\top$ is the weighted scatter.
+
+Conjugacy is important because it gives \textbf{closed-form marginal likelihoods} (Section~\ref{sec:model-selection}).
+
+\paragraph{MAP updates for $c_k$ and $\Sv_k$:}
+
+Setting the gradient of $Q(\theta)+\log p(\theta)$ to zero for $c_k$:
+\begin{equation}
+  (\kappa_0\Sv_k^{-1}+R_k\Sv_k^{-1})\,c_k^{\mathrm{new}} = \kappa_0\Sv_k^{-1}\mu_0 + \Sv_k^{-1}\sum_i r_{ik}x_i.
+\end{equation}
+Since $\Sv_k^{-1}$ factors out (and we often write $\Lambda_0=\kappa_0\Sv_k^{-1}$ or a fixed matrix):
+\begin{equation}
+  c_k^{\mathrm{new}} = \frac{\kappa_0\mu_0+\sum_i r_{ik}x_i}{\kappa_0+R_k} = \frac{\kappa_0\mu_0+R_k\bar{x}_k}{\kappa_n}.
+\end{equation}
+This is a \textbf{weighted average} of the prior mean $\mu_0$ and the data mean $\bar{x}_k$, with weights $\kappa_0$ (prior) and $R_k$ (data). More data $\to$ center follows data; less data $\to$ center stays near $\mu_0$.
+
+For $\Sv_k$, the MAP mode of the Inverse-Wishart posterior is:
+\begin{equation}
+  \Sv_k^{\mathrm{new}} = \frac{\Psi_n}{\nu_n+d+1} = \frac{\Psi_0+S_k+\text{conflict}}{\nu_0+R_k+d+1}.
+\end{equation}
+The ``conflict'' term $\frac{\kappa_0 R_k}{\kappa_n}(\bar{x}_k-\mu_0)(\bar{x}_k-\mu_0)^\top$ penalizes disagreement between the prior mean and data mean. In our implementation, we use a simplified version where $\Lambda_0$ is a fixed precision matrix:
+\begin{equation}
+  \Sv_k^{\mathrm{new}} = \frac{\Psi_0+\sum_i r_{ik}(x_i-c_k^{\mathrm{new}})(x_i-c_k^{\mathrm{new}})^\top}{\nu_0+R_k+d+1} + \lambda I.
+\end{equation}
+The $\lambda I$ term (typically $10^{-6}$) prevents numerical singularity.
+
+% =========================================================================
+\section{Our Model: Adding the Residual Factor}\label{sec:our-model}
+% =========================================================================
+
+\subsection{The generative model}
+
+We augment the standard GMM with a \textbf{second observation per data point}: the vector-field value $f(x_i)$. The generative story for each point:
+\begin{align}
+  z_i &\sim \mathrm{Cat}(\pi), \\
+  x_i \mid z_i=k &\sim \mathcal{N}(c_k,\Sv_k), \label{eq:prox-model} \\
+  f_{\mathrm{obs}}(x_i) \mid x_i,z_i=k &\sim \mathcal{N}(L_k(x_i),\sigma^2 I). \label{eq:resid-model}
+\end{align}
+
+Line~\eqref{eq:prox-model} is the proximity model (standard GMM). Line~\eqref{eq:resid-model} is the residual model (novel): it says that the observed vector field $f_{\mathrm{obs}}(x_i)$ is drawn from a Gaussian centered at the local model's prediction $L_k(x_i)$, with isotropic noise $\sigma^2 I$.
+
+\paragraph{What is $L_k(x_i)$?} This is the local model's prediction of the vector field at $x_i$. It depends on:
+\begin{itemize}[leftmargin=*,itemsep=0pt]
+  \item The cluster's center $c_k$ and local-model parameters (e.g., Jacobian $\Jv_k$, or Koopman operator $\Mv_k$).
+  \item The input point $x_i$ itself.
+\end{itemize}
+Its specific form depends on the variant (Taylor, LS, or EDMD). The framework is agnostic to this choice.
+
+\subsection{The joint observation likelihood}
+
+For a single data point $(x_i, f_{\mathrm{obs}}(x_i))$ assigned to cluster $k$, we want the joint density $p(x_i, f_{\mathrm{obs}}(x_i)\mid z_i=k,\theta)$. We build it in three steps.
+
+\paragraph{Step 1: apply the chain rule of probability.} For any two variables $A$ and $B$:
+\begin{equation}
+  p(A, B) = p(A) \cdot p(B \mid A).
+  \label{eq:chain-rule-general}
+\end{equation}
+This decomposes a joint density into a marginal times a conditional. Applying this with $A=x_i$ and $B=f_{\mathrm{obs}}(x_i)$, all conditioned on $z_i=k$:
+\begin{equation}
+  p(x_i, f_{\mathrm{obs}}(x_i)\mid z_i=k,\theta) = \underbrace{p(x_i\mid z_i=k,\theta)}_{\text{factor 1}} \cdot \underbrace{p(f_{\mathrm{obs}}(x_i)\mid x_i, z_i=k,\theta)}_{\text{factor 2}}.
+  \label{eq:joint-chain}
+\end{equation}
+
+\paragraph{Step 2: identify each factor from our generative model.}
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item \textbf{Factor 1} (proximity): From~\eqref{eq:prox-model}, the generative model says $x_i\mid z_i=k\sim\mathcal{N}(c_k,\Sv_k)$. So:
+  \begin{equation}
+    p(x_i\mid z_i=k,\theta) = \mathcal{N}(x_i;\,c_k,\,\Sv_k).
+  \end{equation}
+  \item \textbf{Factor 2} (residual): From~\eqref{eq:resid-model}, the generative model says $f_{\mathrm{obs}}(x_i)\mid x_i,z_i=k\sim\mathcal{N}(L_k(x_i),\sigma^2 I)$. So:
+  \begin{equation}
+    p(f_{\mathrm{obs}}(x_i)\mid x_i,z_i=k,\theta) = \mathcal{N}(f_{\mathrm{obs}}(x_i);\,L_k(x_i),\,\sigma^2 I).
+  \end{equation}
+\end{itemize}
+
+\paragraph{Step 3: substitute into the chain rule~\eqref{eq:joint-chain}.}
+\begin{equation}
+  p(x_i, f_{\mathrm{obs}}(x_i)\mid z_i=k,\theta) = \underbrace{\mathcal{N}(x_i;\,c_k,\,\Sv_k)}_{\text{proximity}} \cdot \underbrace{\mathcal{N}(f_{\mathrm{obs}}(x_i);\,L_k(x_i),\,\sigma^2 I)}_{\text{residual}}.
+  \label{eq:joint-lik}
+\end{equation}
+This is a product of two Gaussian densities over \textbf{different random variables}: the first is a density over $x_i\in\R^d$, the second is a density over $f_{\mathrm{obs}}(x_i)\in\R^d$. Together they define a density over the pair $(x_i,f_{\mathrm{obs}}(x_i))\in\R^{2d}$.
+
+\begin{derivation}
+\textbf{Why is~\eqref{eq:chain-rule-general} valid here?} In the generative model, $x_i$ is drawn first (from the proximity model), then $f_{\mathrm{obs}}(x_i)$ is drawn conditionally on $x_i$ (from the residual model). The chain rule of probability is a universal identity---it holds for any joint distribution, not just ours. We are simply choosing to decompose $p(x_i,f_{\mathrm{obs}})$ into $p(x_i)\cdot p(f_{\mathrm{obs}}\mid x_i)$ rather than the other way around, because this matches the order of our generative process.
+\end{derivation}
+
+\subsection{The log-likelihood of the joint observation}
+
+Taking the log:
+\begin{align}
+  &\log p(x_i, f_{\mathrm{obs}}(x_i)\mid z_i=k) \notag \\
+  &\quad = \underbrace{-\frac{d}{2}\log 2\pi - \frac{1}{2}\log|\Sv_k| - \frac{1}{2}(x_i-c_k)^\top\Sv_k^{-1}(x_i-c_k)}_{\text{proximity: depends on } x_i, c_k, \Sv_k} \notag \\
+  &\quad + \underbrace{-\frac{d}{2}\log(2\pi\sigma^2) - \frac{\|f_{\mathrm{obs}}(x_i)-L_k(x_i)\|^2}{2\sigma^2}}_{\text{residual: depends on } f_{\mathrm{obs}}(x_i), L_k(x_i), \sigma^2}. \label{eq:log-joint}
+\end{align}
+
+\begin{keyidea}
+The log-likelihood is the \textbf{sum of two quadratic penalties}:
+\begin{enumerate}[leftmargin=*,itemsep=0pt]
+  \item \textbf{Proximity penalty}: $(x_i-c_k)^\top\Sv_k^{-1}(x_i-c_k)$ --- how far is $x_i$ from the center in the $\Sv_k$-metric?
+  \item \textbf{Residual penalty}: $\|f_{\mathrm{obs}}(x_i)-L_k(x_i)\|^2/\sigma^2$ --- how badly does the local model predict $f$ at this point?
+\end{enumerate}
+The relative importance of these two penalties is controlled by the ratio of their scales: $\lambda(\Sv_k^{-1})$ vs.\ $1/\sigma^2$. When $\sigma^2$ is small, the residual penalty dominates; when $\sigma^2$ is large, the proximity penalty dominates.
+\end{keyidea}
+
+\subsection{The role of the residual scale}
+
+$\sigma^2$ is the single most important hyperparameter in the framework. It controls the \textbf{balance between the two forces}:
+
+\begin{itemize}[leftmargin=*,itemsep=4pt]
+  \item $\sigma^2\to\infty$: The residual penalty $\|\varepsilon_k\|^2/(2\sigma^2)\to 0$. The joint likelihood reduces to the proximity factor alone. \textbf{You recover standard GMM.} Clusters form purely by geometry, ignoring dynamics.
+
+  \item $\sigma^2\to 0$: The residual penalty dominates everything. A point is assigned to whichever cluster has the smallest $\|\varepsilon_k\|$, regardless of geometric proximity. \textbf{You get a piecewise regression} where clusters form by model fit alone.
+
+  \item $\sigma^2\sim\text{median}(\|\varepsilon_k\|^2)/d$: Both forces contribute comparably. \textbf{This is the interesting regime.} Clusters form by a combination of geometric proximity and model quality.
+\end{itemize}
+
+\paragraph{Auto-calibration:} We set $\sigma^2$ from the initial GMM partition's residuals:
+\begin{equation}
+  \sigma^2 = \max\!\Bigl(\frac{\text{median}_i\|\varepsilon_k(x_i)\|^2}{d},\,10^{-3}\Bigr).
+\end{equation}
+This ensures the residual penalty is on the same scale as the actual linearization errors in the initial (geometric) partition. The floor $10^{-3}$ prevents numerical instability when residuals are very small (e.g., on polynomial systems where the local model is exact).
+
+\paragraph{Could $\sigma^2$ be learned?} Yes. The M-step update would be:
+\begin{equation}
+  \sigma^{2,\mathrm{new}} = \frac{\sum_{i,k} r_{ik}\|\varepsilon_k(x_i)\|^2}{d\cdot P}.
+\end{equation}
+But this can collapse to $\sigma^2\to\infty$ (residual becomes irrelevant) or $\sigma^2\to 0$ (proximity becomes irrelevant), both of which are local optima of the ELBO. A prior $\sigma^2\sim\mathrm{InverseGamma}(a_0,b_0)$ would prevent collapse but adds two more hyperparameters. We defer this and use the auto-calibrated fixed value.
+
+% =========================================================================
+\section{E-step for Our Model}
+% =========================================================================
+
+The E-step computes the posterior $p(z_i=k\mid x_i,f_{\mathrm{obs}}(x_i),\theta)$---the probability that point~$i$ belongs to cluster~$k$, given \emph{both} the position $x_i$ and the observed vector field $f_{\mathrm{obs}}(x_i)$. We derive this in three steps.
+
+\paragraph{Step 1: apply Bayes' theorem~\eqref{eq:bayes-general}.} Set $A=(z_i=k)$ and $B=(x_i,f_{\mathrm{obs}}(x_i))$ (i.e., the ``data'' is now the \emph{pair} of observations):
+\begin{equation}
+  p(z_i=k\mid x_i,f_{\mathrm{obs}}(x_i),\theta) = \frac{p(x_i,f_{\mathrm{obs}}(x_i)\mid z_i=k,\theta)\cdot p(z_i=k\mid\theta)}{p(x_i,f_{\mathrm{obs}}(x_i)\mid\theta)}.
+  \label{eq:bayes-our-estep}
+\end{equation}
+
+\paragraph{Step 2: identify each factor from our model.}
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item \textbf{Likelihood}: $p(x_i,f_{\mathrm{obs}}(x_i)\mid z_i=k,\theta)$ is the joint observation likelihood~\eqref{eq:joint-lik}, which we already derived:
+  $= \mathcal{N}(x_i;c_k,\Sv_k)\cdot\mathcal{N}(f_{\mathrm{obs}}(x_i);L_k(x_i),\sigma^2 I)$.
+  \item \textbf{Prior}: $p(z_i=k\mid\theta)=\pi_k$ \quad (Categorical).
+  \item \textbf{Evidence}: $p(x_i,f_{\mathrm{obs}}(x_i)\mid\theta)=\sum_{j=1}^N p(x_i,f_{\mathrm{obs}}(x_i),z_i=j\mid\theta)$ (marginalize over all clusters, same pattern as Section~2.1). Using the chain rule on each term:
+  $= \sum_{j=1}^N \pi_j\cdot\mathcal{N}(x_i;c_j,\Sv_j)\cdot\mathcal{N}(f_{\mathrm{obs}}(x_i);L_j(x_i),\sigma^2 I)$.
+\end{itemize}
+
+\paragraph{Step 3: substitute into~\eqref{eq:bayes-our-estep}.} Writing $\varepsilon_k(x_i)=f_{\mathrm{obs}}(x_i)-L_k(x_i)$:
+\begin{equation}
+  r_{ik} = p(z_i=k\mid x_i,f_{\mathrm{obs}}(x_i),\theta) = \frac{\pi_k\,\mathcal{N}(x_i;c_k,\Sv_k)\,\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I)}{\sum_{j=1}^N\pi_j\,\mathcal{N}(x_i;c_j,\Sv_j)\,\mathcal{N}(\varepsilon_j(x_i);0,\sigma^2 I)}.
+  \label{eq:estep-ours}
+\end{equation}
+
+Compare to standard GMM~\eqref{eq:estep-gmm}: the only difference is the extra factor $\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I)$ in both numerator and denominator. This factor \textbf{upweights} clusters where the residual is small (good local fit) and \textbf{downweights} clusters where the residual is large (bad local fit).
+
+\paragraph{Numerical implementation:} We work in log-space to avoid underflow:
+\begin{align}
+  \log\tilde{r}_{ik} &= \log\pi_k + \log\mathcal{N}(x_i;c_k,\Sv_k) + \log\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I), \\
+  \log r_{ik} &= \log\tilde{r}_{ik} - \underset{k}{\mathrm{logsumexp}}\,\log\tilde{r}_{ik},
+\end{align}
+where $\mathrm{logsumexp}_k(a_k)=\log\sum_k\exp(a_k)$, computed via the max-shift trick for numerical stability.
+
+% =========================================================================
+\section{M-step for Our Model}
+% =========================================================================
+
+The M-step maximizes the expected complete-data log-likelihood $Q(\theta)$ plus log-priors over $\theta$. We build $Q$ step by step.
+
+The general form of $Q$ is~\eqref{eq:Q-general}: $Q(\theta)=\sum_{i,k}r_{ik}\log p(x_i,f_{\mathrm{obs}}(x_i),z_i=k\mid\theta)$. Using the chain rule to decompose the joint:
+\begin{align}
+  \log p(x_i,f_{\mathrm{obs}}(x_i),z_i=k\mid\theta) &= \log p(z_i=k\mid\theta) + \log p(x_i\mid z_i=k,\theta) + \log p(f_{\mathrm{obs}}(x_i)\mid x_i,z_i=k,\theta) \notag \\
+  &= \log\pi_k + \log\mathcal{N}(x_i;c_k,\Sv_k) + \log\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I).
+\end{align}
+The first two terms are identical to standard GMM. The third term---the log-residual---is our novel contribution. Substituting into $Q$:
+\begin{equation}
+  Q(\theta) = \underbrace{\sum_{i,k} r_{ik}\log\pi_k}_{Q_\pi} + \underbrace{\sum_{i,k} r_{ik}\log\mathcal{N}(x_i;c_k,\Sv_k)}_{Q_{\text{prox}}} + \underbrace{\sum_{i,k} r_{ik}\log\mathcal{N}(\varepsilon_k(x_i);0,\sigma^2 I)}_{Q_{\text{res}}}.
+  \label{eq:Q-ours}
+\end{equation}
+
+The $Q_\pi$ and $Q_{\text{prox}}$ terms are identical to standard GMM. The novel $Q_{\text{res}}$ term is:
+\begin{equation}
+  Q_{\text{res}} = -\frac{Pd}{2}\log(2\pi\sigma^2) - \frac{1}{2\sigma^2}\sum_{i,k} r_{ik}\|\varepsilon_k(x_i)\|^2.
+\end{equation}
+
+The $\pi$ and $\Sv_k$ updates are the same as in Sections 4--5. What changes is the \textbf{center update}: $Q_{\text{res}}$ depends on $c_k$ through $\varepsilon_k(x_i)=f(x_i)-L_k(x_i)$, and $L_k$ depends on $c_k$. How this dependence is handled defines the three variants.
+
+\subsection{Variant A: Taylor-analytic}
+
+Here $L_k(x)=f(c_k)+\Jv(c_k)(x-c_k)$, where $f$ and $\Jv$ are evaluated analytically. The center $c_k$ enters $Q_{\text{res}}$ through both $f(c_k)$ and $\Jv(c_k)$. In the M-step, we:
+
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+  \item Update $c_k$ using only the proximity gradient:
+  \begin{equation}
+    (\Lambda_0+R_k\Sv_k^{-1})\,c_k^{\mathrm{new}} = \Lambda_0\mu_0 + \Sv_k^{-1}\sum_i r_{ik}x_i.
+    \label{eq:ck-prox-only}
+  \end{equation}
+  This is the standard GMM center update with NIW prior.
+
+  \item \textbf{Re-tie}: set $f(c_k)\gets f(c_k^{\mathrm{new}})$, $\Jv(c_k)\gets\Jv(c_k^{\mathrm{new}})$ analytically.
+\end{enumerate}
+
+\begin{remark}[Why this is approximate]
+The gradient $\nabla_{c_k}Q_{\text{res}}$ is nonzero---it contains a term from $\partial\varepsilon_k/\partial c_k$. By ignoring it in step 1, we are not fully maximizing $Q$ over $c_k$. This makes the update a \textbf{generalized EM (GEM)} step: it increases $Q$ but does not maximize it. The ELBO is still non-decreasing at each step (GEM guarantees this), but it may not converge to the same point as full maximization.
+
+Additionally, step 2 ``re-ties'' $f(c_k)$ and $\Jv(c_k)$ to the analytic values at the new center. This changes the residual in a way that is \emph{not} accounted for by the gradient---it's a separate heuristic update. In practice, at small $N$ (large clusters, large $\sigma^2$), this is harmless. At large $N$ (small clusters, small $\sigma^2$), the residual term dominates and the non-variational re-tying can decrease the ELBO.
+\end{remark}
+
+\subsection{Variant B: Taylor-LS}
+
+Here $L_k(x)=f_k+\Jv_k(x-c_k)$, where $(f_k,\Jv_k)$ are \textbf{free parameters} fit by weighted least squares. We now have three parameter groups to update: $(f_k,\Jv_k)$, $c_k$, and $\Sv_k$. We update them sequentially (coordinate ascent):
+
+\paragraph{Step 1: update $(f_k,\Jv_k)$ by weighted LS.}
+
+The residual is $\varepsilon_k(x_i)=f_{\mathrm{obs}}(x_i)-f_k-\Jv_k(x_i-c_k)$. Fix $c_k$. The $Q_{\text{res}}$ term is:
+\begin{equation}
+  Q_{\text{res}}(f_k,\Jv_k) = -\frac{1}{2\sigma^2}\sum_i r_{ik}\|f_{\mathrm{obs}}(x_i)-f_k-\Jv_k(x_i-c_k)\|^2 + \text{const}.
+\end{equation}
+This is a \textbf{weighted least-squares} problem. Define:
+\begin{align}
+  \phi_i &= \begin{bmatrix}1\\x_i-c_k\end{bmatrix}\in\R^{d+1}, \qquad Z = \begin{bmatrix}\phi_1^\top\\\vdots\\\phi_P^\top\end{bmatrix}\in\R^{P\times(d+1)}, \\
+  W &= \diag(r_{1k},\dots,r_{Pk}), \qquad Y = \begin{bmatrix}f_{\mathrm{obs}}(x_1)^\top\\\vdots\\f_{\mathrm{obs}}(x_P)^\top\end{bmatrix}\in\R^{P\times d}.
+\end{align}
+The optimal $B=[f_k^\top;\Jv_k^\top]\in\R^{(d+1)\times d}$ satisfies the normal equations:
+\begin{equation}
+  (Z^\top W Z+\lambda I)\,B = Z^\top W Y.
+  \label{eq:ls-normal}
+\end{equation}
+The ridge $\lambda I$ (typically $\lambda=10^{-6}$) regularizes against ill-conditioning when $R_k$ is small.
+
+\begin{derivation}
+Take $\nabla_{f_k}Q_{\text{res}}=0$:
+\[
+  \sum_i r_{ik}(f_{\mathrm{obs}}(x_i)-f_k-\Jv_k(x_i-c_k))=0 \quad\Longrightarrow\quad R_k f_k = \sum_i r_{ik}f_{\mathrm{obs}}(x_i)-\Jv_k\sum_i r_{ik}(x_i-c_k).
+\]
+This, together with the analogous equation for $\Jv_k$, is equivalent to the normal equations~\eqref{eq:ls-normal}.
+\end{derivation}
+
+\paragraph{Step 2: update $c_k$ (full gradient, including residual).}
+
+Now fix the new $(f_k,\Jv_k)$ and optimize $c_k$. The $Q$-function depends on $c_k$ through both the proximity term and the residual term. We need:
+\begin{equation}
+  \nabla_{c_k}Q = \nabla_{c_k}Q_{\text{prox}} + \nabla_{c_k}Q_{\text{res}} + \nabla_{c_k}\log p(c_k) = 0.
+\end{equation}
+
+\begin{derivation}
+\textbf{Proximity gradient:}
+$Q_{\text{prox}}$ contains $-\frac{1}{2}\sum_i r_{ik}(x_i-c_k)^\top\Sv_k^{-1}(x_i-c_k)$. Taking the gradient:
+\[
+  \nabla_{c_k}Q_{\text{prox}} = \Sv_k^{-1}\sum_i r_{ik}(x_i-c_k) = \Sv_k^{-1}(S_x - R_k c_k),
+\]
+where $S_x=\sum_i r_{ik}x_i$.
+
+\textbf{Residual gradient:}
+$Q_{\text{res}}$ contains $-\frac{1}{2\sigma^2}\sum_i r_{ik}\|\varepsilon_k(x_i)\|^2$ with $\varepsilon_k(x_i)=f(x_i)-f_k-\Jv_k(x_i-c_k)$. Note $\frac{\partial\varepsilon_k}{\partial c_k}=\Jv_k$ (since $\frac{\partial}{\partial c_k}[-\Jv_k(x_i-c_k)]=\Jv_k$). So:
+\begin{align}
+  \nabla_{c_k}Q_{\text{res}} &= -\frac{1}{\sigma^2}\sum_i r_{ik}\Jv_k^\top\varepsilon_k(x_i) \notag \\
+  &= -\frac{1}{\sigma^2}\Jv_k^\top\bigl[S_f - R_k f_k - \Jv_k(S_x - R_k c_k)\bigr],
+\end{align}
+where $S_f=\sum_i r_{ik}f_{\mathrm{obs}}(x_i)$.
+
+\textbf{Prior gradient:}
+$\log p(c_k)\supset -\frac{1}{2}(c_k-\mu_0)^\top\Lambda_0(c_k-\mu_0)$, so $\nabla_{c_k}\log p(c_k)=\Lambda_0(\mu_0-c_k)$.
+
+\textbf{Setting the total gradient to zero:}
+\begin{align}
+  &\Lambda_0(\mu_0-c_k) + \Sv_k^{-1}(S_x-R_k c_k) - \frac{1}{\sigma^2}\Jv_k^\top[S_f-R_k f_k-\Jv_k(S_x-R_k c_k)] = 0.
+\end{align}
+
+Collecting all terms proportional to $c_k$:
+\begin{equation}
+  \underbrace{\Bigl[\Lambda_0 + R_k\Sv_k^{-1} + \frac{R_k}{\sigma^2}\Jv_k^\top\Jv_k\Bigr]}_{\text{LHS}} c_k^{\mathrm{new}} = \underbrace{\Lambda_0\mu_0 + \Sv_k^{-1}S_x - \frac{1}{\sigma^2}\Jv_k^\top(S_f - R_k f_k - \Jv_k S_x)}_{\text{RHS}}.
+  \label{eq:ck-full-deriv}
+\end{equation}
+\end{derivation}
+
+\begin{keyidea}
+Equation~\eqref{eq:ck-full-deriv} has three contributions to the left-hand side (the ``effective precision'' of the center):
+\begin{enumerate}[leftmargin=*,itemsep=0pt]
+  \item $\Lambda_0$: pull toward the prior mean $\mu_0$.
+  \item $R_k\Sv_k^{-1}$: pull toward the data mean $S_x/R_k$ (standard GMM term).
+  \item $(R_k/\sigma^2)\Jv_k^\top\Jv_k$: pull toward the point that minimizes the residual (novel term).
+\end{enumerate}
+\textbf{Variant A (Taylor-analytic) drops the third term entirely.} This is what makes it approximate.
+\end{keyidea}
+
+\paragraph{Step 3: update $\Sv_k$.} Same as standard GMM with NIW posterior (no residual dependence on $\Sv_k$):
+\begin{equation}
+  \Sv_k^{\mathrm{new}} = \frac{\Psi_0 + \sum_i r_{ik}(x_i-c_k^{\mathrm{new}})(x_i-c_k^{\mathrm{new}})^\top}{\nu_0+R_k+d+1} + \lambda I.
+\end{equation}
+
+\subsection{Variant C: Local EDMD}
+
+Here $L_k(x)=[\Mv_k\Phiv(x-c_k)]_{1{:}d}$, where $\Phiv\colon\R^d\to\R^M$ is a polynomial lifting and $\Mv_k\in\R^{M\times M}$ is the local Koopman generator.
+
+\paragraph{What is the polynomial lifting?}
+For degree $p$ in $d$ dimensions, $\Phiv(u)$ is the vector of all monomials $u_1^{a_1}\cdots u_d^{a_d}$ with $\sum_j a_j\leq p$. For example, with $d=2,p=2$:
+\begin{equation}
+  \Phiv(u_1,u_2) = (1,\, u_1,\, u_2,\, u_1^2,\, u_1 u_2,\, u_2^2)^\top \in\R^6.
+\end{equation}
+The total number of monomials is $M=\binom{d+p}{p}$.
+
+\paragraph{Why $[\Mv_k\Phiv]_{1{:}d}$ gives $\hat{f}$:}
+The first entry of $\Phiv$ is the constant 1; entries 2 through $d+1$ are the linear monomials $u_1,\dots,u_d$. Their time derivatives are $\dot{u}_j=\dot{x}_j=f_j(x)$. The Koopman generator $\Mv_k$ is fit so that $\Mv_k\Phiv(u)\approx\dot{\Phiv}(u)$, where $\dot{\Phiv}$ is the vector of time derivatives of all monomials. Entries 2 through $d+1$ of $\dot{\Phiv}$ are exactly $f_1(x),\dots,f_d(x)$. So:
+\begin{equation}
+  [\Mv_k\Phiv(x-c_k)]_j \approx \dot{\Phi}_j = f_j(x), \qquad j=1,\dots,d.
+\end{equation}
+
+\paragraph{M-step for $\Mv_k$:} The generator is fit by weighted least squares. The target for each data point is $\dot{\Phiv}(x_i-c_k)=\nabla\Phiv(x_i-c_k)\cdot f(x_i)$, the Lie derivative of $\Phiv$ along $f$. The feature is $\Phiv(x_i-c_k)$. With weights $r_{ik}$:
+\begin{align}
+  G_k &= \sum_i r_{ik}\Phiv(x_i-c_k)\Phiv(x_i-c_k)^\top \in\R^{M\times M}, \label{eq:edmd-G} \\
+  A_k &= \sum_i r_{ik}\dot{\Phiv}(x_i-c_k)\Phiv(x_i-c_k)^\top \in\R^{M\times M}, \label{eq:edmd-A} \\
+  \Mv_k &= A_k(G_k+\lambda I)^{-1}. \label{eq:edmd-Mk}
+\end{align}
+
+\begin{derivation}
+The objective is $\min_{\Mv_k}\sum_i r_{ik}\|\dot{\Phiv}_i-\Mv_k\Phiv_i\|^2$. This is a weighted linear regression in $\R^M$: the matrix $\Mv_k$ is the ``weight matrix.'' Taking the matrix derivative:
+\[
+  \nabla_{\Mv_k} = -2\sum_i r_{ik}(\dot{\Phiv}_i-\Mv_k\Phiv_i)\Phiv_i^\top = 0 \quad\Longrightarrow\quad \Mv_k\sum_i r_{ik}\Phiv_i\Phiv_i^\top = \sum_i r_{ik}\dot{\Phiv}_i\Phiv_i^\top.
+\]
+This gives $\Mv_k G_k = A_k$, hence $\Mv_k = A_k G_k^{-1}$.
+\end{derivation}
+
+\paragraph{$c_k$ update:} In this variant we use the proximity-only update~\eqref{eq:ck-prox-only}. The residual gradient w.r.t.\ $c_k$ involves $\nabla_{c_k}\Phiv(x_i-c_k)$, which is a tensor of polynomial derivatives. Deriving the closed-form is possible but algebraically heavy and we defer it. This makes the local-EDMD M-step a GEM step for $c_k$, analogous to Variant A.
+
+% =========================================================================
+\section{Model Selection}\label{sec:model-selection}
+% =========================================================================
+
+\subsection{How many clusters?}
+
+Given the model with $N$ clusters, we want to compare models with different $N$. The Bayesian approach computes the \textbf{marginal likelihood} $p(X,F\mid N)$---the probability of the data under model $N$ after integrating out all parameters.
+
+\subsection{The NIW marginal likelihood (derivation)}
+
+For a single cluster $k$ with points $\{x_i:z_i=k\}$, the marginal likelihood integrates out $(c_k,\Sv_k)$:
+\begin{equation}
+  p(X_k) = \int p(X_k\mid c_k,\Sv_k)\,p(c_k,\Sv_k)\,dc_k\,d\Sv_k.
+\end{equation}
+Because the NIW prior is conjugate to the Gaussian likelihood, this integral has a closed form:
+\begin{align}
+  \log p(X_k) &= \frac{d}{2}\log\frac{\kappa_0}{\kappa_n} + \frac{\nu_0}{2}\log|\Psi_0| - \frac{\nu_n}{2}\log|\Psi_n| \notag \\
+  &\quad + \log\Gamma_d\!\Bigl(\frac{\nu_n}{2}\Bigr) - \log\Gamma_d\!\Bigl(\frac{\nu_0}{2}\Bigr) - \frac{R_k d}{2}\log\pi,
+\end{align}
+where $\Gamma_d$ is the multivariate gamma function $\Gamma_d(a)=\pi^{d(d-1)/4}\prod_{j=1}^d\Gamma(a+(1-j)/2)$.
+
+In our model, we add the residual penalty term:
+\begin{equation}
+  \log p(X_k,F_k) = \log p(X_k) - \frac{1}{2\sigma^2}\sum_{i:z_i=k}\|\varepsilon_k(x_i)\|^2.
+\end{equation}
+
+The total log marginal is:
+\begin{equation}
+  \log p(X,F\mid N) = \underbrace{\log\frac{\Gamma(N\alpha_0)}{\Gamma(P+N\alpha_0)}\prod_k\frac{\Gamma(R_k+\alpha_0)}{\Gamma(\alpha_0)}}_{\text{Dirichlet-Categorical marginal}} + \sum_k\log p(X_k,F_k).
+\end{equation}
+The model with the highest $\log p(X,F\mid N)$ is preferred.
+
+% =========================================================================
+\section{Summary: What Each Piece Does}
+% =========================================================================
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{p{3.5cm}p{4cm}p{5cm}}
+\toprule
+\textbf{Object} & \textbf{What it controls} & \textbf{How it's determined} \\
+\midrule
+$\pi_k$ & Prior probability of cluster $k$ & MAP with Dirichlet prior (Eq.~\ref{eq:pi-map}) \\
+$c_k$ & Center of cluster $k$ & MAP with NIW prior + residual gradient (Eq.~\ref{eq:ck-full-deriv}) \\
+$\Sv_k$ & Shape/size of cluster $k$ & NIW posterior mode (scatter around $c_k$) \\
+$\sigma^2$ & Balance: proximity vs.\ residual & Auto-calibrated from initial residuals; fixed during EM \\
+$L_k$ (local model) & Vector-field prediction in cluster $k$ & Depends on variant (analytic $\Jv$, LS fit, or EDMD) \\
+$r_{ik}$ & Soft assignment of point $i$ to cluster $k$ & E-step posterior (Eq.~\ref{eq:estep-ours}) \\
+$N$ & Number of clusters & Set high initially; pruned by Dirichlet prior; selected by marginal likelihood \\
+\bottomrule
+\end{tabular}
+\caption{Summary of all quantities in the framework.}
+\end{table}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{p{3cm}p{4.5cm}p{4.5cm}}
+\toprule
+\textbf{Hyperparameter} & \textbf{Meaning} & \textbf{Our choice} \\
+\midrule
+$\alpha_0$ & Dirichlet concentration & 0.5 (sparse-inducing) \\
+$\mu_0$ & Prior mean for centers & Data mean $\bar{x}$ \\
+$\Lambda_0$ (or $\kappa_0$) & Prior precision for centers & $0.01 I$ (weak: centers free to move) \\
+$\Psi_0$ & Prior scale for covariances & $10 I$ or $1 I$ (moderate) \\
+$\nu_0$ & Prior df for covariances & $d+2$ (minimal informative) \\
+$\sigma^2$ & Residual noise scale & Auto-calibrated from median residual \\
+$\lambda$ (ridge) & Regularization for LS/EDMD & $10^{-6}$ (Taylor-LS) or $10^{-4}$ (EDMD) \\
+\bottomrule
+\end{tabular}
+\caption{Hyperparameters and default values.}
+\end{table}
+
+\end{document}

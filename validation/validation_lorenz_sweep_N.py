@@ -9,15 +9,16 @@ Reports:
 """
 
 import numpy as np
+from utils.paths import fig_path, data_path
 import torch
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
 import pykoopman as pk
 
-from lorenz import generate_data, f as lorenz_f, J as lorenz_J
-from em import fit
-from distributions import mvn_logpdf_batch
+from simulators.lorenz import generate_data, f as lorenz_f, J as lorenz_J
+from models.em import fit
+from models.distributions import mvn_logpdf_batch
 
 torch.set_default_dtype(torch.float64)
 
@@ -211,5 +212,25 @@ axes[1].set_title("Rollout error at t=5s vs N")
 axes[1].legend(); axes[1].grid(alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("sweep_N.png", dpi=120)
+plt.savefig(fig_path("sweep_N.png"), dpi=120)
 print("\n→ saved sweep_N.png")
+
+# ── Save raw data ────────────────────────────────────────────────────────────
+import json
+raw = {
+    "step_baseline": step_baseline,
+    "rows": rows,
+    "edmd_baselines": {
+        "deg2": {
+            "one_step": edmd2_onestep,
+            "rollout": list(edmd2_rollout),
+        },
+        "deg3": {
+            "one_step": edmd3_onestep,
+            "rollout": list(edmd3_rollout),
+        },
+    },
+}
+with open(data_path("validation_lorenz_sweep_N.json"), "w") as fp:
+    json.dump(raw, fp, indent=2)
+print(f"Raw data saved to {data_path('validation_lorenz_sweep_N.json')}")

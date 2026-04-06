@@ -1,6 +1,6 @@
 import torch
 from torch.special import gammaln
-from distributions import _mvlgamma
+from .distributions import _mvlgamma
 
 
 def cluster_log_marginal(

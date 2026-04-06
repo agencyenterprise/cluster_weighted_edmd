@@ -22,8 +22,8 @@ import numpy as np
 import torch
 from sklearn.mixture import GaussianMixture
 
-from distributions import mvn_logpdf_batch
-from elbo import check_monotone
+from .distributions import mvn_logpdf_batch
+from .elbo import check_monotone
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ def compute_elbo_local(
     X:     torch.Tensor, F: torch.Tensor, r: torch.Tensor,
     state: dict, hp: dict,
 ) -> torch.Tensor:
-    from distributions import dirichlet_logpdf, niw_logpdf
+    from .distributions import dirichlet_logpdf, niw_logpdf
     N      = state['N']
     sigma2 = hp['sigma2']
 
