@@ -836,27 +836,40 @@ Given the model with $N$ clusters, we want to compare models with different $N$.
 
 \subsection{The NIW marginal likelihood (derivation)}
 
-For a single cluster $k$ with points $\{x_i:z_i=k\}$, the marginal likelihood integrates out $(c_k,\Sv_k)$:
+For a single cluster $k$ with points $\{x_i:z_i=k\}$, the \emph{true} marginal likelihood would integrate out $(c_k,\Sv_k)$ from the \emph{full} likelihood (proximity $\times$ residual):
 \begin{equation}
-  p(X_k) = \int p(X_k\mid c_k,\Sv_k)\,p(c_k,\Sv_k)\,dc_k\,d\Sv_k.
+  p(X_k,F_k) = \int p(X_k\mid c_k,\Sv_k)\;p(F_k\mid X_k,c_k,\sigma^2)\;p(c_k,\Sv_k)\;dc_k\,d\Sv_k.
+  \label{eq:true-marginal}
 \end{equation}
-Because the NIW prior is conjugate to the Gaussian likelihood, this integral has a closed form:
+However, this integral is \textbf{not available in closed form}. The reason: the residual factor $p(F_k\mid X_k,c_k,\sigma^2)$ depends on $c_k$ through the local model $L_k(c_k,\cdot)$---via $f(c_k)$ and $\Jv(c_k)$ in the Taylor variant, or via the LS-fit operator conditioned on $c_k$. This nonlinear dependence on $c_k$ breaks the NIW conjugacy. The proximity factor alone is conjugate to the NIW prior; the product of both factors is not.
+
+\paragraph{What we compute instead: a plug-in approximation.} We separate~\eqref{eq:true-marginal} into two parts:
+
+\textbf{Part 1: exact NIW marginal for the proximity factor.} The integral
+\begin{equation}
+  p(X_k) = \int p(X_k\mid c_k,\Sv_k)\,p(c_k,\Sv_k)\,dc_k\,d\Sv_k
+\end{equation}
+\emph{is} closed-form because the Gaussian likelihood $p(X_k\mid c_k,\Sv_k)$ is conjugate to the NIW prior:
 \begin{align}
   \log p(X_k) &= \frac{d}{2}\log\frac{\kappa_0}{\kappa_n} + \frac{\nu_0}{2}\log|\Psi_0| - \frac{\nu_n}{2}\log|\Psi_n| \notag \\
   &\quad + \log\Gamma_d\!\Bigl(\frac{\nu_n}{2}\Bigr) - \log\Gamma_d\!\Bigl(\frac{\nu_0}{2}\Bigr) - \frac{R_k d}{2}\log\pi,
 \end{align}
 where $\Gamma_d$ is the multivariate gamma function $\Gamma_d(a)=\pi^{d(d-1)/4}\prod_{j=1}^d\Gamma(a+(1-j)/2)$.
 
-In our model, we add the residual penalty term:
+\textbf{Part 2: residual penalty at the converged point estimate $\hat{c}_k$.} We evaluate the residual factor at the EM-converged center rather than integrating it out:
 \begin{equation}
-  \log p(X_k,F_k) = \log p(X_k) - \frac{1}{2\sigma^2}\sum_{i:z_i=k}\|\varepsilon_k(x_i)\|^2.
+  \log\widetilde{p}(X_k,F_k) = \log p(X_k) - \frac{1}{2\sigma^2}\sum_{i:z_i=k}\|\varepsilon_k(x_i)\|^2\Biggr|_{c_k=\hat{c}_k}.
 \end{equation}
 
-The total log marginal is:
+\begin{remark}[Plug-in approximation]
+This is \textbf{not an exact marginal likelihood}---it is a hybrid of an exact integral (proximity part) and a plug-in evaluation (residual part). The approximation is adequate when the posterior on $c_k$ is concentrated (large $R_k$, many points in the cluster), because the integrand in~\eqref{eq:true-marginal} is then sharply peaked around $\hat{c}_k$ and the plug-in value closely approximates the integral. In the limit $\sigma^2\to\infty$ (no residual term), it reduces to the exact NIW marginal. In the limit of very small clusters with few points, the approximation degrades and BIC may be a more reliable model-selection criterion.
+\end{remark}
+
+The total approximate log marginal is:
 \begin{equation}
-  \log p(X,F\mid N) = \underbrace{\log\frac{\Gamma(N\alpha_0)}{\Gamma(P+N\alpha_0)}\prod_k\frac{\Gamma(R_k+\alpha_0)}{\Gamma(\alpha_0)}}_{\text{Dirichlet-Categorical marginal}} + \sum_k\log p(X_k,F_k).
+  \log\widetilde{p}(X,F\mid N) = \underbrace{\log\frac{\Gamma(N\alpha_0)}{\Gamma(P+N\alpha_0)}\prod_k\frac{\Gamma(R_k+\alpha_0)}{\Gamma(\alpha_0)}}_{\text{Dirichlet-Categorical marginal}} + \sum_k\log\widetilde{p}(X_k,F_k).
 \end{equation}
-The model with the highest $\log p(X,F\mid N)$ is preferred.
+The model with the highest $\log\widetilde{p}(X,F\mid N)$ is preferred.
 
 % =========================================================================
 \section{Summary: What Each Piece Does}

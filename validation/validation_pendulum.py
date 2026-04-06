@@ -18,6 +18,19 @@ Metrics:
   * Trajectory rollout error at t = 2s, 5s, 10s (angular distance metric)
 """
 
+import argparse
+
+parser = argparse.ArgumentParser(description="Pendulum validation: local-EDMD vs global-EDMD vs Taylor")
+parser.add_argument('--train-seed', type=int, default=42)
+parser.add_argument('--test-seed', type=int, default=17)
+parser.add_argument('--n-train', type=int, default=4000)
+parser.add_argument('--n-test', type=int, default=1000)
+parser.add_argument('--n-iter', type=int, default=60)
+parser.add_argument('--n-restarts', type=int, default=2)
+parser.add_argument('--dt', type=float, default=0.05)
+parser.add_argument('--rollout-steps', type=int, default=200)
+args = parser.parse_args()
+
 import numpy as np
 from utils.paths import fig_path, data_path
 import torch
@@ -47,8 +60,8 @@ torch.set_default_dtype(torch.float64)
 np.random.seed(0)
 
 # ── Training + test data ─────────────────────────────────────────────────────
-train = sample_phase_space(n_samples=4000, seed=42)
-test  = sample_phase_space(n_samples=1000, seed=17)
+train = sample_phase_space(n_samples=args.n_train, seed=args.train_seed)
+test  = sample_phase_space(n_samples=args.n_test, seed=args.test_seed)
 
 X_tr = torch.tensor(train['X'], dtype=torch.float64)
 F_tr = torch.tensor(train['F'], dtype=torch.float64)
@@ -56,7 +69,7 @@ X_te = torch.tensor(test ['X'], dtype=torch.float64)
 F_te = torch.tensor(test ['F'], dtype=torch.float64)
 
 d  = 2
-dt = 0.05
+dt = args.dt
 
 hp_base = {
     'alpha0': 0.5, 'mu0': X_tr.mean(dim=0),
@@ -149,7 +162,7 @@ rollout_inits = [
     torch.tensor([ 0.0, 2.5]),  # fast spin, energy decays to oscillation
     torch.tensor([-2.0, 1.0]),
 ]
-n_roll = 200   # 10 seconds at dt=0.05
+n_roll = args.rollout_steps   # 10 seconds at dt=0.05
 
 def rollout_metrics(rollout_fn, model):
     errs = {50: [], 100: [], 200: []}
@@ -187,7 +200,7 @@ for deg, N_list in [(2, [2, 4, 8, 16]), (4, [2, 4, 8])]:
         hp = dict(hp_base); hp['sigma2'] = 'auto'
         print(f"\n  local deg={deg} N={N} ...")
         state, _, _ = fit_local_edmd(X_tr, F_tr, N=N, hp=hp, degree=deg,
-                                     n_iter=60, n_restarts=2, verbose=False)
+                                     n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
         one = onestep_err_local(state)
         r   = rollout_metrics(rollout_local, state)
         rows.append(dict(name=f"local-EDMD deg={deg} N={N}", N=state['N'],
@@ -201,7 +214,7 @@ for N in (2, 4, 8, 16):
     hp = dict(hp_base); hp['sigma2'] = 'auto'
     print(f"  Taylor-analytic N={N} ...")
     state, _, _ = fit_taylor(X_tr, F_tr, pendulum_f, pendulum_J,
-                             N=N, hp=hp, n_iter=60, n_restarts=2, verbose=False)
+                             N=N, hp=hp, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
     one = onestep_err_taylor(state)
     r   = rollout_metrics(rollout_taylor, state)
     rows.append(dict(name=f"Taylor-analytic N={N}", N=state['N'],
@@ -215,7 +228,7 @@ for N in (2, 4, 8, 16):
     hp = dict(hp_base); hp['sigma2'] = 'auto'
     print(f"  Taylor-LS N={N} ...")
     state, _, _ = fit_hybrid(X_tr, F_tr, pendulum_f, pendulum_J,
-                             N=N, hp=hp, n_iter=60, n_restarts=2, verbose=False)
+                             N=N, hp=hp, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
     one = onestep_err_taylor(state)   # predict uses same state shape (f_centers, jacobians)
     r   = rollout_metrics(rollout_taylor, state)
     rows.append(dict(name=f"Taylor-LS N={N}", N=state['N'],
@@ -280,7 +293,7 @@ g8 = fit_global_edmd(X_tr, F_tr, degree=8); sim = rollout_global(x0, g8, n_roll)
 ax.plot(sim[:, 0].numpy(), sim[:, 1].numpy(), '--', color='C3', alpha=0.7, label='global deg-8')
 
 hp = dict(hp_base); hp['sigma2'] = 'auto'
-st, _, _ = fit_local_edmd(X_tr, F_tr, N=4, hp=hp, degree=2, n_iter=60, n_restarts=2, verbose=False)
+st, _, _ = fit_local_edmd(X_tr, F_tr, N=4, hp=hp, degree=2, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
 sim = rollout_local(x0, st, n_roll)
 ax.plot(sim[:, 0].numpy(), sim[:, 1].numpy(), '-', color='C0', alpha=0.9, label='local deg-2 N=4')
 
@@ -295,6 +308,8 @@ print("→ saved pendulum_rollout.png")
 # ── Save raw data ────────────────────────────────────────────────────────────
 import json
 raw = {
+    "train_seed": args.train_seed,
+    "test_seed": args.test_seed,
     "rows": rows,
 }
 with open(data_path("validation_pendulum.json"), "w") as fp:

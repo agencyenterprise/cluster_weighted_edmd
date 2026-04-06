@@ -8,6 +8,19 @@ Reports:
   * effective N after dead-cluster pruning
 """
 
+import argparse
+
+parser = argparse.ArgumentParser(description="Sweep N for residual-aware piecewise-linear model")
+parser.add_argument('--seed', type=int, default=42)
+parser.add_argument('--n-steps', type=int, default=5000)
+parser.add_argument('--dt', type=float, default=0.01)
+parser.add_argument('--warmup', type=int, default=1000)
+parser.add_argument('--n-train', type=int, default=4000)
+parser.add_argument('--n-iter', type=int, default=100)
+parser.add_argument('--n-restarts', type=int, default=2)
+parser.add_argument('--N-values', nargs='+', type=int, default=[3, 5, 8, 12, 20, 30, 50])
+args = parser.parse_args()
+
 import numpy as np
 from utils.paths import fig_path, data_path
 import torch
@@ -15,6 +28,7 @@ from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
 import pykoopman as pk
+from models.global_edmd import fit as fit_global_ours, predict_f as predict_f_global_ours
 
 from simulators.lorenz import generate_data, f as lorenz_f, J as lorenz_J
 from models.em import fit
@@ -23,16 +37,16 @@ from models.distributions import mvn_logpdf_batch
 torch.set_default_dtype(torch.float64)
 
 # ── Data (identical to validation.py) ─────────────────────────────────────────
-data  = generate_data(n_steps=5000, dt=0.01, warmup=1000, seed=42)
+data  = generate_data(n_steps=args.n_steps, dt=args.dt, warmup=args.warmup, seed=args.seed)
 X_all = torch.tensor(data['X'], dtype=torch.float64)
 F_all = torch.tensor(data['F'], dtype=torch.float64)
-dt    = 0.01
+dt    = args.dt
 d     = 3
 
-X_tr, X_te = X_all[:4000], X_all[4000:]
-F_tr, F_te = F_all[:4000], F_all[4000:]
-X_te_in    = X_all[4000:4999]
-X_te_next  = X_all[4001:5000]
+X_tr, X_te = X_all[:args.n_train], X_all[args.n_train:]
+F_tr, F_te = F_all[:args.n_train], F_all[args.n_train:]
+X_te_in    = X_all[args.n_train:args.n_steps-1]
+X_te_next  = X_all[args.n_train+1:args.n_steps]
 step_baseline = torch.linalg.norm(X_te_next - X_te_in, dim=1).mean().item()
 
 hp = {
@@ -108,6 +122,39 @@ edmd2_onestep = torch.linalg.norm(
 edmd3_onestep = torch.linalg.norm(
     torch.tensor(edmd3.predict(X_te_in.numpy())) - X_te_next, dim=1).mean().item()
 
+print("Fitting EDMD-ours baselines ...")
+edmd_ours2 = fit_global_ours(X_tr, F_tr, degree=2, ridge=1e-4)
+edmd_ours3 = fit_global_ours(X_tr, F_tr, degree=3, ridge=1e-4)
+
+f_hat2 = predict_f_global_ours(X_te_in, edmd_ours2)
+edmd_ours2_onestep = torch.linalg.norm(
+    X_te_in + dt * f_hat2 - X_te_next, dim=1).mean().item()
+f_hat3 = predict_f_global_ours(X_te_in, edmd_ours3)
+edmd_ours3_onestep = torch.linalg.norm(
+    X_te_in + dt * f_hat3 - X_te_next, dim=1).mean().item()
+
+def rollout_edmd_ours(x0, edmd_model, n_steps):
+    traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
+    traj[0] = x0
+    for t in range(n_steps):
+        f_hat = predict_f_global_ours(traj[t:t+1], edmd_model)
+        traj[t + 1] = traj[t] + dt * f_hat[0]
+    return traj
+
+def rollout_errs_edmd_ours(edmd_model, inits, n_steps=500):
+    errs_50, errs_200, errs_500 = [], [], []
+    for x0 in inits:
+        tru = rollout_truth(x0, n_steps)
+        sim = rollout_edmd_ours(x0, edmd_model, n_steps)
+        e = torch.linalg.norm(sim - tru, dim=1)
+        errs_50.append(e[50].item())
+        errs_200.append(e[200].item())
+        errs_500.append(e[500].item())
+    return (np.mean(errs_50), np.mean(errs_200), np.mean(errs_500))
+
+edmd_ours2_rollout = rollout_errs_edmd_ours(edmd_ours2, inits)
+edmd_ours3_rollout = rollout_errs_edmd_ours(edmd_ours3, inits)
+
 def rollout_edmd(x0, model, n_steps):
     sim = torch.tensor(model.simulate(x0.numpy().reshape(1,-1), n_steps=n_steps),
                        dtype=torch.float64)
@@ -128,7 +175,7 @@ edmd2_rollout = rollout_errs_edmd(edmd2, inits)
 edmd3_rollout = rollout_errs_edmd(edmd3, inits)
 
 # ── Sweep N ───────────────────────────────────────────────────────────────────
-N_values = [3, 5, 8, 12, 20, 30, 50]
+N_values = args.N_values
 rows = []
 
 for N in N_values:
@@ -137,10 +184,10 @@ for N in N_values:
     hp_g = dict(hp_gmm)
     print(f"\nN={N} residual-aware ...", flush=True)
     state_o, _, _ = fit(X_tr, F_tr, lorenz_f, lorenz_J,
-                        N=N, hp=hp_o, n_iter=100, n_restarts=2, verbose=False)
+                        N=N, hp=hp_o, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
     print(f"N={N} gmm ...", flush=True)
     state_g, _, _ = fit(X_tr, F_tr, lorenz_f, lorenz_J,
-                        N=N, hp=hp_g, n_iter=100, n_restarts=2, verbose=False)
+                        N=N, hp=hp_g, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
 
     one_o = mean_onestep_err(state_o)
     one_g = mean_onestep_err(state_g)
@@ -150,7 +197,7 @@ for N in N_values:
     rows.append({
         'N': N,
         'active_o': state_o['N'], 'active_g': state_g['N'],
-        'sigma2':   hp_o['sigma2'],
+        'sigma2':   state_o['sigma2'].mean().item(),
         'one_o': one_o, 'one_g': one_g,
         'r50_o': r_o[0], 'r50_g': r_g[0],
         'r200_o': r_o[1], 'r200_g': r_g[1],
@@ -179,11 +226,16 @@ for r in rows:
     print(f"{r['N']:>6}  {r['r50_o']:>12.3f} {r['r200_o']:>12.3f} {r['r500_o']:>12.3e}   "
           f"{r['r50_g']:>12.3f} {r['r200_g']:>12.3f} {r['r500_g']:>12.3e}")
 
-print("\nEDMD baselines:")
-print(f"  deg-2: one-step {edmd2_onestep:.5f} ({100*edmd2_onestep/step_baseline:.2f}%)  "
+print("\nEDMD baselines (pykoopman):")
+print(f"  EDMD-pk deg-2: one-step {edmd2_onestep:.5f} ({100*edmd2_onestep/step_baseline:.2f}%)  "
       f"rollout {edmd2_rollout[0]:.3f} / {edmd2_rollout[1]:.3f} / {edmd2_rollout[2]:.3f}")
-print(f"  deg-3: one-step {edmd3_onestep:.5f} ({100*edmd3_onestep/step_baseline:.2f}%)  "
+print(f"  EDMD-pk deg-3: one-step {edmd3_onestep:.5f} ({100*edmd3_onestep/step_baseline:.2f}%)  "
       f"rollout {edmd3_rollout[0]:.3f} / {edmd3_rollout[1]:.3f} / {edmd3_rollout[2]:.3f}")
+print("\nEDMD baselines (ours):")
+print(f"  EDMD-ours deg-2: one-step {edmd_ours2_onestep:.5f} ({100*edmd_ours2_onestep/step_baseline:.2f}%)  "
+      f"rollout {edmd_ours2_rollout[0]:.3f} / {edmd_ours2_rollout[1]:.3f} / {edmd_ours2_rollout[2]:.3f}")
+print(f"  EDMD-ours deg-3: one-step {edmd_ours3_onestep:.5f} ({100*edmd_ours3_onestep/step_baseline:.2f}%)  "
+      f"rollout {edmd_ours3_rollout[0]:.3f} / {edmd_ours3_rollout[1]:.3f} / {edmd_ours3_rollout[2]:.3f}")
 
 # ── Plot one-step and rollout-500 error vs N ──────────────────────────────────
 Ns = [r['N'] for r in rows]
@@ -195,8 +247,10 @@ r500_g = [r['r500_g'] for r in rows]
 fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
 axes[0].loglog(Ns, one_o, 'o-', label='ours')
 axes[0].loglog(Ns, one_g, 's-', label='gmm')
-axes[0].axhline(edmd2_onestep, ls='--', color='C2', label=f'EDMD deg-2')
-axes[0].axhline(edmd3_onestep, ls='--', color='C3', label=f'EDMD deg-3')
+axes[0].axhline(edmd2_onestep, ls='--', color='C2', label=f'EDMD-pk deg-2')
+axes[0].axhline(edmd3_onestep, ls='--', color='C3', label=f'EDMD-pk deg-3')
+axes[0].axhline(edmd_ours2_onestep, ls=':', color='C2', label=f'EDMD-ours deg-2')
+axes[0].axhline(edmd_ours3_onestep, ls=':', color='C3', label=f'EDMD-ours deg-3')
 axes[0].set_xlabel("N (requested)")
 axes[0].set_ylabel(r"mean $\|\hat x_{t+1}-x_{t+1}\|$ on test set")
 axes[0].set_title("One-step state error vs N")
@@ -204,8 +258,10 @@ axes[0].legend(); axes[0].grid(alpha=0.3)
 
 axes[1].loglog(Ns, r500_o, 'o-', label='ours')
 axes[1].loglog(Ns, r500_g, 's-', label='gmm')
-axes[1].axhline(edmd2_rollout[2], ls='--', color='C2', label='EDMD deg-2')
-axes[1].axhline(edmd3_rollout[2], ls='--', color='C3', label='EDMD deg-3')
+axes[1].axhline(edmd2_rollout[2], ls='--', color='C2', label='EDMD-pk deg-2')
+axes[1].axhline(edmd3_rollout[2], ls='--', color='C3', label='EDMD-pk deg-3')
+axes[1].axhline(edmd_ours2_rollout[2], ls=':', color='C2', label='EDMD-ours deg-2')
+axes[1].axhline(edmd_ours3_rollout[2], ls=':', color='C3', label='EDMD-ours deg-3')
 axes[1].set_xlabel("N (requested)")
 axes[1].set_ylabel(r"$\|\hat x_{500}-x_{500}\|$")
 axes[1].set_title("Rollout error at t=5s vs N")
@@ -218,9 +274,10 @@ print("\n→ saved sweep_N.png")
 # ── Save raw data ────────────────────────────────────────────────────────────
 import json
 raw = {
+    "data_seed": args.seed,
     "step_baseline": step_baseline,
     "rows": rows,
-    "edmd_baselines": {
+    "edmd_pk_baselines": {
         "deg2": {
             "one_step": edmd2_onestep,
             "rollout": list(edmd2_rollout),
@@ -228,6 +285,16 @@ raw = {
         "deg3": {
             "one_step": edmd3_onestep,
             "rollout": list(edmd3_rollout),
+        },
+    },
+    "edmd_ours_baselines": {
+        "deg2": {
+            "one_step": edmd_ours2_onestep,
+            "rollout": list(edmd_ours2_rollout),
+        },
+        "deg3": {
+            "one_step": edmd_ours3_onestep,
+            "rollout": list(edmd_ours3_rollout),
         },
     },
 }

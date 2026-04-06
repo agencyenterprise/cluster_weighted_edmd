@@ -12,6 +12,19 @@ Reports:
   * Jacobian drift: fitted J_k vs analytic J(c_k) for hybrid
 """
 
+import argparse
+
+parser = argparse.ArgumentParser(description="Compare Taylor-tied, Hybrid, GMM, and EDMD across N")
+parser.add_argument('--seed', type=int, default=42)
+parser.add_argument('--n-steps', type=int, default=5000)
+parser.add_argument('--dt', type=float, default=0.01)
+parser.add_argument('--warmup', type=int, default=1000)
+parser.add_argument('--n-train', type=int, default=4000)
+parser.add_argument('--n-iter', type=int, default=100)
+parser.add_argument('--n-restarts', type=int, default=2)
+parser.add_argument('--N-values', nargs='+', type=int, default=[5, 12, 20, 30, 50])
+args = parser.parse_args()
+
 import numpy as np
 from utils.paths import fig_path, data_path
 import torch
@@ -19,6 +32,7 @@ from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
 import pykoopman as pk
+from models.global_edmd import fit as fit_global_ours, predict_f as predict_f_global_ours
 
 from simulators.lorenz import generate_data, f as lorenz_f, J as lorenz_J
 from models.em import fit               as fit_taylor
@@ -29,16 +43,16 @@ from models.elbo import check_monotone
 torch.set_default_dtype(torch.float64)
 
 # ── Data ─────────────────────────────────────────────────────────────────────
-data  = generate_data(n_steps=5000, dt=0.01, warmup=1000, seed=42)
+data  = generate_data(n_steps=args.n_steps, dt=args.dt, warmup=args.warmup, seed=args.seed)
 X_all = torch.tensor(data['X'], dtype=torch.float64)
 F_all = torch.tensor(data['F'], dtype=torch.float64)
-dt    = 0.01
+dt    = args.dt
 d     = 3
 
-X_tr, X_te = X_all[:4000], X_all[4000:]
-F_tr, F_te = F_all[:4000], F_all[4000:]
-X_te_in    = X_all[4000:4999]
-X_te_next  = X_all[4001:5000]
+X_tr, X_te = X_all[:args.n_train], X_all[args.n_train:]
+F_tr, F_te = F_all[:args.n_train], F_all[args.n_train:]
+X_te_in    = X_all[args.n_train:args.n_steps-1]
+X_te_next  = X_all[args.n_train+1:args.n_steps]
 step_baseline = torch.linalg.norm(X_te_next - X_te_in, dim=1).mean().item()
 
 hp_base = {
@@ -105,6 +119,37 @@ edmd3 = pk.Koopman(observables=pk.observables.Polynomial(degree=3, include_bias=
 edmd2_one = torch.linalg.norm(torch.tensor(edmd2.predict(X_te_in.numpy())) - X_te_next, dim=1).mean().item()
 edmd3_one = torch.linalg.norm(torch.tensor(edmd3.predict(X_te_in.numpy())) - X_te_next, dim=1).mean().item()
 
+print("Fitting EDMD-ours baselines ...")
+edmd_ours2 = fit_global_ours(X_tr, F_tr, degree=2, ridge=1e-4)
+edmd_ours3 = fit_global_ours(X_tr, F_tr, degree=3, ridge=1e-4)
+
+f_hat2 = predict_f_global_ours(X_te_in, edmd_ours2)
+edmd_ours2_one = torch.linalg.norm(
+    X_te_in + dt * f_hat2 - X_te_next, dim=1).mean().item()
+f_hat3 = predict_f_global_ours(X_te_in, edmd_ours3)
+edmd_ours3_one = torch.linalg.norm(
+    X_te_in + dt * f_hat3 - X_te_next, dim=1).mean().item()
+
+def rollout_edmd_ours(x0, edmd_model, n_steps):
+    traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
+    traj[0] = x0
+    for t in range(n_steps):
+        f_hat = predict_f_global_ours(traj[t:t+1], edmd_model)
+        traj[t + 1] = traj[t] + dt * f_hat[0]
+    return traj
+
+def rollout_edmd_ours_errs(edmd_model, inits, n_steps=500):
+    e50, e500 = [], []
+    for x0 in inits:
+        tru = rollout_truth(x0, n_steps)
+        sim = rollout_edmd_ours(x0, edmd_model, n_steps)
+        e = torch.linalg.norm(sim - tru, dim=1)
+        e50.append(e[50].item()); e500.append(e[500].item())
+    return np.mean(e50), np.mean(e500)
+
+edmd_ours2_r50, edmd_ours2_r500 = rollout_edmd_ours_errs(edmd_ours2, inits)
+edmd_ours3_r50, edmd_ours3_r500 = rollout_edmd_ours_errs(edmd_ours3, inits)
+
 def rollout_edmd_errs(model, inits, n_steps=500):
     e50, e500 = [], []
     for x0 in inits:
@@ -119,7 +164,7 @@ edmd2_r50, edmd2_r500 = rollout_edmd_errs(edmd2, inits)
 edmd3_r50, edmd3_r500 = rollout_edmd_errs(edmd3, inits)
 
 # ── Sweep N ──────────────────────────────────────────────────────────────────
-N_values = [5, 12, 20, 30, 50]
+N_values = args.N_values
 rows = []
 
 for N in N_values:
@@ -127,18 +172,18 @@ for N in N_values:
 
     print("  Fitting Taylor-tied ...", flush=True)
     st_t, _, hist_t = fit_taylor(X_tr, F_tr, lorenz_f, lorenz_J,
-                                 N=N, hp=hp_our(), n_iter=100, n_restarts=2, verbose=False)
+                                 N=N, hp=hp_our(), n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
     mono_t = check_monotone(hist_t) if hist_t else True
 
     print("  Fitting hybrid ...", flush=True)
     st_h, _, hist_h = fit_hybrid(X_tr, F_tr, lorenz_f, lorenz_J,
-                                 N=N, hp=hp_our(), n_iter=100, n_restarts=2, verbose=False)
+                                 N=N, hp=hp_our(), n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
     mono_h = check_monotone(hist_h) if hist_h else True
     drift = jacobian_drift(st_h, lorenz_J)
 
     print("  Fitting GMM ...", flush=True)
     st_g, _, _ = fit_taylor(X_tr, F_tr, lorenz_f, lorenz_J,
-                            N=N, hp=hp_gmm_(), n_iter=100, n_restarts=2, verbose=False)
+                            N=N, hp=hp_gmm_(), n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
 
     one_t, one_h, one_g = onestep_err(st_t), onestep_err(st_h), onestep_err(st_g)
     r50_t, r500_t = rollout_errs(st_t, inits)
@@ -171,8 +216,10 @@ for r in rows:
           f"{r['one_t']:>10.5f} {r['one_h']:>10.5f} {r['one_g']:>10.5f}  "
           f"{100*r['one_t']/step_baseline:>7.2f}% {100*r['one_h']/step_baseline:>7.2f}% "
           f"{100*r['one_g']/step_baseline:>7.2f}%")
-print(f"\nEDMD deg-2: {edmd2_one:.5f}  ({100*edmd2_one/step_baseline:.2f}%)")
-print(f"EDMD deg-3: {edmd3_one:.5f}  ({100*edmd3_one/step_baseline:.2f}%)")
+print(f"\nEDMD-pk deg-2:   {edmd2_one:.5f}  ({100*edmd2_one/step_baseline:.2f}%)")
+print(f"EDMD-pk deg-3:   {edmd3_one:.5f}  ({100*edmd3_one/step_baseline:.2f}%)")
+print(f"EDMD-ours deg-2: {edmd_ours2_one:.5f}  ({100*edmd_ours2_one/step_baseline:.2f}%)")
+print(f"EDMD-ours deg-3: {edmd_ours3_one:.5f}  ({100*edmd_ours3_one/step_baseline:.2f}%)")
 
 print("\n" + "=" * 100)
 print("ROLLOUT ERROR @ 500 steps (t=5s)")
@@ -180,8 +227,10 @@ print("=" * 100)
 print(f"{'N':>4}  {'Taylor':>14} {'Hybrid':>14} {'GMM':>14}")
 for r in rows:
     print(f"{r['N']:>4}  {r['r500_t']:>14.3e} {r['r500_h']:>14.3e} {r['r500_g']:>14.3e}")
-print(f"\nEDMD deg-2: {edmd2_r500:.3f}")
-print(f"EDMD deg-3: {edmd3_r500:.3f}")
+print(f"\nEDMD-pk deg-2:   {edmd2_r500:.3f}")
+print(f"EDMD-pk deg-3:   {edmd3_r500:.3f}")
+print(f"EDMD-ours deg-2: {edmd_ours2_r500:.3f}")
+print(f"EDMD-ours deg-3: {edmd_ours3_r500:.3f}")
 
 print("\n" + "=" * 100)
 print("DIAGNOSTICS")
@@ -201,8 +250,10 @@ fig, ax = plt.subplots(1, 2, figsize=(13, 4.5))
 ax[0].loglog(Ns, one_t, 'o-', label='Taylor-tied')
 ax[0].loglog(Ns, one_h, 's-', label='Hybrid (LS)')
 ax[0].loglog(Ns, one_g, '^-', label='GMM')
-ax[0].axhline(edmd2_one, ls='--', color='C3', label='EDMD deg-2')
-ax[0].axhline(edmd3_one, ls='--', color='C4', label='EDMD deg-3')
+ax[0].axhline(edmd2_one, ls='--', color='C3', label='EDMD-pk deg-2')
+ax[0].axhline(edmd3_one, ls='--', color='C4', label='EDMD-pk deg-3')
+ax[0].axhline(edmd_ours2_one, ls=':', color='C3', label='EDMD-ours deg-2')
+ax[0].axhline(edmd_ours3_one, ls=':', color='C4', label='EDMD-ours deg-3')
 ax[0].set_xlabel('N'); ax[0].set_ylabel(r'mean $\|\hat x_{t+1}-x_{t+1}\|$')
 ax[0].set_title('One-step state error vs N')
 ax[0].legend(); ax[0].grid(alpha=0.3)
@@ -223,11 +274,16 @@ print("\n→ saved hybrid_sweep.png")
 # ── Save raw data ────────────────────────────────────────────────────────────
 import json
 raw = {
+    "data_seed": args.seed,
     "step_baseline": step_baseline,
     "rows": rows,
-    "edmd_baselines": {
+    "edmd_pk_baselines": {
         "deg2": {"one_step": edmd2_one, "r50": edmd2_r50, "r500": edmd2_r500},
         "deg3": {"one_step": edmd3_one, "r50": edmd3_r50, "r500": edmd3_r500},
+    },
+    "edmd_ours_baselines": {
+        "deg2": {"one_step": edmd_ours2_one, "r50": edmd_ours2_r50, "r500": edmd_ours2_r500},
+        "deg3": {"one_step": edmd_ours3_one, "r50": edmd_ours3_r50, "r500": edmd_ours3_r500},
     },
 }
 with open(data_path("validation_lorenz_hybrid.json"), "w") as fp:

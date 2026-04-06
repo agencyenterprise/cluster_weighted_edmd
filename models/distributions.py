@@ -49,30 +49,33 @@ def residual_logpdf_batch(
     centers:   torch.Tensor,   # (N, d)
     f_centers: torch.Tensor,   # (N, d)  f(c_k) precomputed
     jacobians: torch.Tensor,   # (N, d, d)
-    sigma2:    float,
+    sigma2,                    # float or (N,) tensor — per-cluster residual scale
 ) -> torch.Tensor:             # (P, N)
     """
-    Log p(eps_k(x_i) | 0, sigma2*I) for all i, k.
+    Log p(eps_k(x_i) | 0, sigma2_k * I) for all i, k.
 
     eps_k(x_i) = f(x_i) - f(c_k) - J_k @ (x_i - c_k)
 
-    This is the novel likelihood factor that makes cluster assignments
-    sensitive to linearization quality, not just geometric proximity.
+    sigma2 can be a scalar (shared across clusters) or a 1-D tensor of
+    length N (per-cluster residual variance).
     """
     P, d = X.shape
     N    = centers.shape[0]
     out  = torch.zeros(P, N, dtype=torch.float64)
 
-    noise_dist = MultivariateNormal(
-        loc=torch.zeros(d, dtype=torch.float64),
-        covariance_matrix=sigma2 * torch.eye(d, dtype=torch.float64)
-    )
+    # Normalize sigma2 to a (N,) tensor for uniform handling
+    if isinstance(sigma2, (int, float)):
+        s2 = torch.full((N,), float(sigma2), dtype=torch.float64)
+    else:
+        s2 = sigma2
 
     for k in range(N):
         delta       = X - centers[k]                             # (P, d)
         linear_pred = f_centers[k] + (jacobians[k] @ delta.T).T # (P, d)
         eps         = F - linear_pred                            # (P, d)
-        out[:, k]   = noise_dist.log_prob(eps)                   # (P,)
+        sq_norm     = (eps ** 2).sum(dim=1)                      # (P,)
+        out[:, k]   = -(d / 2.0) * torch.log(2 * torch.pi * s2[k]) \
+                      - sq_norm / (2.0 * s2[k])
 
     return out
 

@@ -13,6 +13,7 @@ proximity alone (argmax of log pi_k + log N(x; c_k, Sigma_k)) — the
 residual term is used only during training.
 """
 
+import argparse
 import numpy as np
 from utils.paths import fig_path, data_path
 import torch
@@ -20,6 +21,19 @@ from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
 import pykoopman as pk
+from models.global_edmd import fit as fit_global_ours, predict_f as predict_f_global_ours
+
+parser = argparse.ArgumentParser(description="Lorenz: one-step + rollout vs global EDMD")
+parser.add_argument('--seed', type=int, default=42)
+parser.add_argument('--n-steps', type=int, default=5000)
+parser.add_argument('--dt', type=float, default=0.01)
+parser.add_argument('--warmup', type=int, default=1000)
+parser.add_argument('--n-train', type=int, default=4000)
+parser.add_argument('--N', type=int, default=5)
+parser.add_argument('--n-iter', type=int, default=100)
+parser.add_argument('--n-restarts', type=int, default=3)
+parser.add_argument('--rollout-steps', type=int, default=500)
+args = parser.parse_args()
 
 from simulators.lorenz import generate_data, f as lorenz_f, J as lorenz_J, SIGMA, RHO, BETA
 from models.em import fit, initialize
@@ -31,14 +45,14 @@ torch.set_default_dtype(torch.float64)
 # Data
 # ═════════════════════════════════════════════════════════════════════════════
 
-data = generate_data(n_steps=5000, dt=0.01, warmup=1000, seed=42)
-X_all = torch.tensor(data['X'], dtype=torch.float64)     # (5000, 3)
-F_all = torch.tensor(data['F'], dtype=torch.float64)     # (5000, 3)
-dt    = 0.01
+data = generate_data(n_steps=args.n_steps, dt=args.dt, warmup=args.warmup, seed=args.seed)
+X_all = torch.tensor(data['X'], dtype=torch.float64)
+F_all = torch.tensor(data['F'], dtype=torch.float64)
+dt    = args.dt
 
-# train / test split (first 4000 train, last 1000 test)
-X_tr, X_te = X_all[:4000], X_all[4000:]
-F_tr, F_te = F_all[:4000], F_all[4000:]
+# train / test split
+X_tr, X_te = X_all[:args.n_train], X_all[args.n_train:]
+F_tr, F_te = F_all[:args.n_train], F_all[args.n_train:]
 
 d = 3
 hp = {
@@ -56,14 +70,14 @@ hp_gmm = {**hp, 'sigma2': 1e10}
 # Fit our method (residual-aware) and GMM baseline
 # ═════════════════════════════════════════════════════════════════════════════
 
-print("Fitting residual-aware model (N=5) ...")
+print(f"Fitting residual-aware model (N={args.N}) ...")
 state_ours, r_ours, _ = fit(X_tr, F_tr, lorenz_f, lorenz_J,
-                            N=5, hp=hp, n_iter=100, n_restarts=3, verbose=False)
-print(f"  active N = {state_ours['N']}, sigma2 = {hp['sigma2']:.4f}")
+                            N=args.N, hp=hp, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
+print(f"  active N = {state_ours['N']}, sigma2 = {state_ours['sigma2'].mean().item():.4f} (mean)")
 
-print("Fitting GMM baseline    (N=5) ...")
+print(f"Fitting GMM baseline    (N={args.N}) ...")
 state_gmm, r_gmm, _ = fit(X_tr, F_tr, lorenz_f, lorenz_J,
-                          N=5, hp=hp_gmm, n_iter=100, n_restarts=3, verbose=False)
+                          N=args.N, hp=hp_gmm, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
 print(f"  active N = {state_gmm['N']}")
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -83,6 +97,11 @@ edmd3 = pk.Koopman(
     regressor=pk.regression.EDMD(),
 )
 edmd3.fit(X_tr.numpy(), dt=dt)
+
+print("Fitting EDMD-ours deg-2 ...")
+edmd_ours2 = fit_global_ours(X_tr, F_tr, degree=2, ridge=1e-4)
+print("Fitting EDMD-ours deg-3 ...")
+edmd_ours3 = fit_global_ours(X_tr, F_tr, degree=3, ridge=1e-4)
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Active-cluster picker (proximity only, for test-time use)
@@ -120,7 +139,7 @@ print("\n" + "=" * 70)
 print("EXPERIMENT 1 — Trajectory rollout (3 init conditions, 500 steps)")
 print("=" * 70)
 
-n_steps_rollout = 500   # 5.0 seconds ≈ 4.5 Lyapunov times
+n_steps_rollout = args.rollout_steps
 init_indices    = [0, 300, 700]   # pick 3 points from test set
 
 def rollout_ours(x0, state, n_steps):
@@ -134,6 +153,14 @@ def rollout_edmd(x0, model, n_steps):
     return torch.tensor(model.simulate(x0.numpy().reshape(1, -1), n_steps=n_steps),
                         dtype=torch.float64)
 
+def rollout_edmd_ours(x0, edmd_model, n_steps):
+    traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
+    traj[0] = x0
+    for t in range(n_steps):
+        f_hat = predict_f_global_ours(traj[t:t+1], edmd_model)
+        traj[t + 1] = traj[t] + dt * f_hat[0]
+    return traj
+
 def rollout_truth(x0, n_steps):
     sol = solve_ivp(
         fun=lambda t, y: lorenz_f(y),
@@ -144,7 +171,8 @@ def rollout_truth(x0, n_steps):
     )
     return torch.tensor(sol.y.T, dtype=torch.float64)   # (n_steps+1, d)
 
-rollouts = {'truth': [], 'ours': [], 'gmm': [], 'edmd2': [], 'edmd3': []}
+rollouts = {'truth': [], 'ours': [], 'gmm': [], 'edmd2': [], 'edmd3': [],
+            'edmd_ours2': [], 'edmd_ours3': []}
 for idx in init_indices:
     x0 = X_te[idx]
     rollouts['truth'].append(rollout_truth(x0, n_steps_rollout))
@@ -155,6 +183,8 @@ for idx in init_indices:
     sim3 = rollout_edmd(x0, edmd3, n_steps_rollout)
     rollouts['edmd2'].append(torch.cat([x0.unsqueeze(0), sim2], dim=0))
     rollouts['edmd3'].append(torch.cat([x0.unsqueeze(0), sim3], dim=0))
+    rollouts['edmd_ours2'].append(rollout_edmd_ours(x0, edmd_ours2, n_steps_rollout))
+    rollouts['edmd_ours3'].append(rollout_edmd_ours(x0, edmd_ours3, n_steps_rollout))
 
 # Per-step error ‖x̂_t − x_t‖ averaged across the 3 initial conditions
 def avg_err(method):
@@ -164,14 +194,20 @@ def avg_err(method):
         errs.append(e)
     return torch.stack(errs).mean(dim=0)
 
-err_curves = {m: avg_err(m) for m in ('ours', 'gmm', 'edmd2', 'edmd3')}
+err_curves = {m: avg_err(m) for m in ('ours', 'gmm', 'edmd2', 'edmd3', 'edmd_ours2', 'edmd_ours3')}
 
 attractor_diameter = (X_all.max(dim=0).values - X_all.min(dim=0).values).norm().item()
 print(f"attractor diameter ≈ {attractor_diameter:.1f}")
 print()
-print(f"{'method':<10} {'err @ 50 steps':>16} {'err @ 200 steps':>17} {'err @ 500 steps':>17}")
+rollout_labels = {
+    'ours': 'ours', 'gmm': 'gmm',
+    'edmd2': 'EDMD-pk deg-2', 'edmd3': 'EDMD-pk deg-3',
+    'edmd_ours2': 'EDMD-ours deg-2', 'edmd_ours3': 'EDMD-ours deg-3',
+}
+print(f"{'method':<20} {'err @ 50 steps':>16} {'err @ 200 steps':>17} {'err @ 500 steps':>17}")
 for m, e in err_curves.items():
-    print(f"{m:<10} {e[50].item():>16.3f} {e[200].item():>17.3f} {e[500].item():>17.3f}")
+    label = rollout_labels.get(m, m)
+    print(f"{label:<20} {e[50].item():>16.3f} {e[200].item():>17.3f} {e[500].item():>17.3f}")
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Experiment 2 — Local residual vs radius near each fixed point
@@ -250,8 +286,15 @@ onestep_gmm  = one_step_metrics("gmm   (N=5)",   one_step_ours(X_te_in, state_gm
 # EDMD simulate starting from each X_te_in[i] for 1 step
 edmd2_pred = one_step_edmd(X_te_in, edmd2)
 edmd3_pred = one_step_edmd(X_te_in, edmd3)
-onestep_edmd2 = one_step_metrics("edmd  deg-2",   edmd2_pred)
-onestep_edmd3 = one_step_metrics("edmd  deg-3",   edmd3_pred)
+onestep_edmd2 = one_step_metrics("EDMD-pk deg-2",  edmd2_pred)
+onestep_edmd3 = one_step_metrics("EDMD-pk deg-3",  edmd3_pred)
+# Our global EDMD one-step: x_{t+1} = x_t + dt * predict_f(x_t)
+f_hat2 = predict_f_global_ours(X_te_in, edmd_ours2)
+edmd_ours2_pred = X_te_in + dt * f_hat2
+f_hat3 = predict_f_global_ours(X_te_in, edmd_ours3)
+edmd_ours3_pred = X_te_in + dt * f_hat3
+onestep_edmd_ours2 = one_step_metrics("EDMD-ours deg-2", edmd_ours2_pred)
+onestep_edmd_ours3 = one_step_metrics("EDMD-ours deg-3", edmd_ours3_pred)
 
 print(f"\n  baseline ‖x_{{t+1}}-x_t‖ mean = {torch.linalg.norm(X_te_next - X_te_in, dim=1).mean().item():.5f}")
 
@@ -289,6 +332,7 @@ print("\n→ saved validation_rollouts.png")
 import json
 step_baseline = torch.linalg.norm(X_te_next - X_te_in, dim=1).mean().item()
 raw = {
+    "data_seed": args.seed,
     "attractor_diameter": attractor_diameter,
     "step_baseline": step_baseline,
     "rollout_err_at_step": {
@@ -298,8 +342,10 @@ raw = {
     "one_step_mean_err": {
         "ours": onestep_ours,
         "gmm": onestep_gmm,
-        "edmd_deg2": onestep_edmd2,
-        "edmd_deg3": onestep_edmd3,
+        "edmd_pk_deg2": onestep_edmd2,
+        "edmd_pk_deg3": onestep_edmd3,
+        "edmd_ours_deg2": onestep_edmd_ours2,
+        "edmd_ours_deg3": onestep_edmd_ours3,
     },
 }
 with open(data_path("validation_lorenz_vs_edmd.json"), "w") as fp:

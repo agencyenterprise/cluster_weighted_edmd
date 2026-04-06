@@ -151,16 +151,20 @@ def residual_logpdf_local_edmd(
     F:       torch.Tensor,   # (P, d)
     centers: torch.Tensor,   # (N, d)
     M_ops:   torch.Tensor,   # (N, M, M)
-    sigma2:  float,
+    sigma2,                  # float or (N,) tensor — per-cluster residual scale
     exps:    list,
     d:       int,
 ) -> torch.Tensor:            # (P, N)
     F_pred  = predict_f_all_clusters(X, centers, M_ops, exps, d)
     eps     = F.unsqueeze(1) - F_pred                      # (P, N, d)
     sq_norm = (eps ** 2).sum(dim=2)                        # (P, N)
-    log_norm = -(d / 2.0) * torch.log(torch.tensor(2.0 * torch.pi * sigma2,
-                                                   dtype=X.dtype))
-    return log_norm - sq_norm / (2.0 * sigma2)
+    N = centers.shape[0]
+    if isinstance(sigma2, (int, float)):
+        s2 = torch.full((N,), float(sigma2), dtype=X.dtype)
+    else:
+        s2 = sigma2
+    log_norm = -(d / 2.0) * torch.log(2.0 * torch.pi * s2).unsqueeze(0)  # (1, N)
+    return log_norm - sq_norm / (2.0 * s2.unsqueeze(0))                    # (P, N)
 
 
 def e_step(
@@ -171,7 +175,7 @@ def e_step(
 ) -> torch.Tensor:
     log_prox  = mvn_logpdf_batch(X, state['centers'], state['covariances'])
     log_resid = residual_logpdf_local_edmd(
-        X, F, state['centers'], state['M_ops'], hp['sigma2'],
+        X, F, state['centers'], state['M_ops'], state['sigma2'],
         state['exps'], state['d'],
     )
     log_pi   = torch.log(state['pi']).unsqueeze(0)
@@ -192,7 +196,6 @@ def m_step(
     hp:    dict,
 ) -> dict:
     N, d, P = state['N'], state['d'], state['P']
-    sigma2  = hp['sigma2']
     alpha0  = hp['alpha0']
     mu0     = hp['mu0']
     Lambda0 = hp['Lambda0']
@@ -232,11 +235,24 @@ def m_step(
     pi_new = torch.clamp(pi_new, min=1e-10)
     pi_new = pi_new / pi_new.sum()
 
+    # ── per-cluster sigma2_k update (only if learned) ──────────────────────
+    if state.get('learn_sigma2', True):
+        F_pred = predict_f_all_clusters(X, centers_new, M_ops_new, exps, d)
+        sigma2_new = torch.zeros(N, dtype=torch.float64)
+        for k in range(N):
+            eps_k = F - F_pred[:, k]
+            sq    = (eps_k ** 2).sum(dim=1)
+            sigma2_new[k] = max((r[:, k] * sq).sum().item() / (d * R[k].item()), 1e-3)
+    else:
+        sigma2_new = state['sigma2']
+
     return {
         'pi':          pi_new,
         'centers':     centers_new,
         'covariances': covariances_new,
         'M_ops':       M_ops_new,
+        'sigma2':      sigma2_new,
+        'learn_sigma2': state.get('learn_sigma2', True),
         'N':           N, 'd': d, 'P': P,
         'exps':        exps,
     }
@@ -251,8 +267,7 @@ def compute_elbo_local(
     state: dict, hp: dict,
 ) -> torch.Tensor:
     from .distributions import dirichlet_logpdf, niw_logpdf
-    N      = state['N']
-    sigma2 = hp['sigma2']
+    N = state['N']
 
     log_pi = torch.log(state['pi'])
     term1  = (r * log_pi.unsqueeze(0)).sum()
@@ -261,7 +276,7 @@ def compute_elbo_local(
     term2    = (r * log_prox).sum()
 
     log_resid = residual_logpdf_local_edmd(
-        X, F, state['centers'], state['M_ops'], sigma2, state['exps'], state['d']
+        X, F, state['centers'], state['M_ops'], state['sigma2'], state['exps'], state['d']
     )
     term3 = (r * log_resid).sum()
 
@@ -308,19 +323,32 @@ def initialize(
         else:
             M_ops[k] = weighted_continuous_edmd(X, F, r_k, centers[k], exps)
 
-    # Calibrate sigma2 from initial residuals
+    # Calibrate per-cluster sigma2 from initial residuals
     if hp.get('sigma2', 'auto') == 'auto':
         F_pred   = predict_f_all_clusters(X, centers, M_ops, exps, d)
-        labels_t = torch.tensor(labels, dtype=torch.long)
-        eps_all  = F - F_pred[torch.arange(P), labels_t]
-        sq       = (eps_all ** 2).sum(dim=1)
-        sigma2   = max(sq.median().item() / d, 1e-3)
-        hp['sigma2'] = sigma2
-        print(f"    sigma2 calibrated from residuals: {sigma2:.4f}")
+        sigma2   = torch.full((N,), 1e-3, dtype=torch.float64)
+        for k in range(N):
+            mask = labels == k
+            if mask.sum() == 0:
+                continue
+            eps_k = F[mask] - F_pred[mask, k]
+            sq    = (eps_k ** 2).sum(dim=1)
+            sigma2[k] = max(sq.median().item() / d, 1e-3)
+        print(f"    sigma2 calibrated per cluster: mean={sigma2.mean().item():.4f}, "
+              f"range=[{sigma2.min().item():.4f}, {sigma2.max().item():.4f}]")
+        learn_sigma2 = True
+    else:
+        s = hp['sigma2']
+        if isinstance(s, (int, float)):
+            sigma2 = torch.full((N,), float(s), dtype=torch.float64)
+        else:
+            sigma2 = s.clone()
+        learn_sigma2 = False
 
     return {
         'pi': pi, 'centers': centers, 'covariances': covariances,
-        'M_ops': M_ops, 'exps': exps, 'N': N, 'd': d, 'P': P,
+        'M_ops': M_ops, 'sigma2': sigma2, 'learn_sigma2': learn_sigma2,
+        'exps': exps, 'N': N, 'd': d, 'P': P,
     }
 
 
@@ -343,6 +371,8 @@ def prune_dead(state, r, X, F, hp, threshold=1.0, min_N=2):
             'centers':     state['centers'][keep],
             'covariances': state['covariances'][keep],
             'M_ops':       state['M_ops'][keep],
+            'sigma2':      state['sigma2'][keep],
+            'learn_sigma2': state.get('learn_sigma2', True),
             'exps':        state['exps'],
             'N': state['N'] - 1, 'd': state['d'], 'P': state['P'],
         }

@@ -28,7 +28,7 @@ def cluster_log_marginal(
     kappa0 = hp['kappa0']
     Psi0   = hp['Psi0']
     nu0    = hp['nu0']
-    sigma2 = hp['sigma2']
+    sigma2 = hp.get('_sigma2_k', hp.get('sigma2', 1.0))  # per-cluster or scalar
 
     if R_k == 0:
         return torch.tensor(0.0, dtype=torch.float64)
@@ -117,13 +117,16 @@ def total_log_marginal(
         mask = assignments == k
         if mask.sum() == 0:
             continue
+        # Pass per-cluster sigma2_k via hp override
+        hp_k = dict(hp)
+        hp_k['_sigma2_k'] = state['sigma2'][k].item() if 'sigma2' in state else hp.get('sigma2', 1.0)
         log_clusters = log_clusters + cluster_log_marginal(
             X_k=X[mask],
             F_k=F[mask],
             c_k=state['centers'][k],
             J_k=state['jacobians'][k],
             f_ck=state['f_centers'][k],
-            hp=hp,
+            hp=hp_k,
         )
 
     return log_dir + log_clusters

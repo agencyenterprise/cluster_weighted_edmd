@@ -1,6 +1,21 @@
+import argparse
 import numpy as np
 import torch
 from utils.paths import fig_path, data_path
+
+parser = argparse.ArgumentParser(description="Lorenz full experiment")
+parser.add_argument('--seed', type=int, default=42)
+parser.add_argument('--n-steps', type=int, default=5000)
+parser.add_argument('--dt', type=float, default=0.01)
+parser.add_argument('--warmup', type=int, default=1000)
+parser.add_argument('--N', type=int, default=5, help="Cluster count for main fit")
+parser.add_argument('--n-iter', type=int, default=100)
+parser.add_argument('--n-restarts', type=int, default=3)
+parser.add_argument('--ms-range', type=int, nargs=2, default=[2, 13],
+                    help="Model selection N range [start, stop)")
+parser.add_argument('--ms-restarts', type=int, default=2,
+                    help="Restarts for model selection sweep")
+args = parser.parse_args()
 
 from simulators.lorenz import generate_data, f, J, test_jacobian
 from models.distributions import (
@@ -47,7 +62,7 @@ print("=" * 60)
 print("DATA GENERATION")
 print("=" * 60)
 
-data  = generate_data(n_steps=5000, dt=0.01, warmup=1000)
+data  = generate_data(n_steps=args.n_steps, dt=args.dt, warmup=args.warmup, seed=args.seed)
 X     = torch.tensor(data['X'],     dtype=torch.float64)   # (5000, 3)
 F_obs = torch.tensor(data['F'],     dtype=torch.float64)   # (5000, 3)
 P     = X.shape[0]
@@ -91,10 +106,10 @@ print("=" * 60)
 
 state_gmm, r_gmm, history_gmm = fit(
     X, F_obs, f, J,
-    N=5,
+    N=args.N,
     hp=hp_gmm,
-    n_iter=100,
-    n_restarts=3,
+    n_iter=args.n_iter,
+    n_restarts=args.n_restarts,
     verbose=True,
 )
 
@@ -112,10 +127,10 @@ print("=" * 60)
 
 state_ours, r_ours, history_ours = fit(
     X, F_obs, f, J,
-    N=5,
+    N=args.N,
     hp=hp,
-    n_iter=100,
-    n_restarts=3,
+    n_iter=args.n_iter,
+    n_restarts=args.n_restarts,
     verbose=True,
 )
 
@@ -178,12 +193,12 @@ elbo_by_N = {}
 bic_by_N  = {}
 ml_by_N   = {}
 
-for N in range(2, 13):
+for N in range(args.ms_range[0], args.ms_range[1]):
     print(f"\n  N = {N}")
     s, r, hist = fit(
         X, F_obs, f, J,
         N=N, hp=hp,
-        n_iter=100, n_restarts=2,
+        n_iter=args.n_iter, n_restarts=args.ms_restarts,
         verbose=False,
     )
     if s is None:
@@ -217,6 +232,7 @@ print()
 import json
 
 raw = {
+    'data_seed': args.seed,
     'err_gmm': err_gmm, 'err_ours': err_ours, 'improvement': improvement,
     'ml_gmm': ml_gmm, 'ml_ours': ml_ours,
     'elbo_by_N': {str(k): v for k, v in elbo_by_N.items()},

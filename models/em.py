@@ -16,19 +16,17 @@ def compute_sigma2_from_residuals(
     f_centers: torch.Tensor,
     jacobians: torch.Tensor,
     labels:   np.ndarray,
-) -> float:
+) -> torch.Tensor:
     """
-    Calibrate sigma2 from actual within-cluster Taylor residuals.
+    Calibrate per-cluster sigma2_k from actual within-cluster Taylor residuals.
 
-    sigma2 = median(||eps_k(x_i)||^2) / d  over all assigned points.
+    sigma2_k = median(||eps_k(x_i)||^2) / d  for points assigned to cluster k.
 
-    This ensures the residual likelihood term is on the same scale as
-    the actual linearization errors — making it neither dominant nor
-    invisible in the responsibility computation.
+    Returns a tensor of shape (N,) — one residual variance per cluster.
     """
     d          = X.shape[1]
     N          = centers.shape[0]
-    all_res_sq = []
+    sigma2     = torch.full((N,), 1e-2, dtype=torch.float64)
 
     for k in range(N):
         mask = labels == k
@@ -39,13 +37,10 @@ def compute_sigma2_from_residuals(
         delta = X_k - centers[k]
         lp    = f_centers[k] + (jacobians[k] @ delta.T).T
         eps   = F_k - lp
-        all_res_sq.append((eps ** 2).sum(dim=1))
+        res_sq = (eps ** 2).sum(dim=1)
+        sigma2[k] = max(res_sq.median().item() / d, 1e-2)
 
-    all_res_sq = torch.cat(all_res_sq)
-    sigma2     = all_res_sq.median().item() / d
-
-    # Safety floor: sigma2 must be strictly positive
-    return max(sigma2, 1e-2)
+    return sigma2
 
 
 def initialize(
@@ -95,10 +90,20 @@ def initialize(
 
     # Calibrate sigma2 from actual within-cluster residuals
     if hp.get('sigma2', 'auto') == 'auto':
-        hp['sigma2'] = compute_sigma2_from_residuals(
+        sigma2 = compute_sigma2_from_residuals(
             X, F, centers, f_centers, jacobians, labels
         )
-        print(f"    sigma2 calibrated from residuals: {hp['sigma2']:.4f}")
+        print(f"    sigma2 calibrated per cluster: mean={sigma2.mean().item():.4f}, "
+              f"range=[{sigma2.min().item():.4f}, {sigma2.max().item():.4f}]")
+        learn_sigma2 = True
+    else:
+        # Fixed sigma2: either scalar or pre-set tensor
+        s = hp['sigma2']
+        if isinstance(s, (int, float)):
+            sigma2 = torch.full((N,), float(s), dtype=torch.float64)
+        else:
+            sigma2 = s.clone()
+        learn_sigma2 = False
 
     return {
         'pi':          pi,
@@ -106,6 +111,8 @@ def initialize(
         'covariances': covariances,
         'f_centers':   f_centers,
         'jacobians':   jacobians,
+        'sigma2':      sigma2,            # (N,) per-cluster residual variance
+        'learn_sigma2': learn_sigma2,     # if False, sigma2 stays fixed in M-step
         'N':           N,
         'd':           d,
         'P':           P,
@@ -135,7 +142,7 @@ def e_step(
         state['centers'],
         state['f_centers'],
         state['jacobians'],
-        hp['sigma2'],
+        state['sigma2'],
     )
     log_pi    = torch.log(state['pi']).unsqueeze(0)  # (1, N)
 
@@ -166,7 +173,6 @@ def m_step(
     """
     N       = state['N']
     d       = state['d']
-    sigma2  = hp['sigma2']
     alpha0  = hp['alpha0']
     mu0     = hp['mu0']
     Lambda0 = hp['Lambda0']
@@ -231,12 +237,28 @@ def m_step(
     pi_new = torch.clamp(pi_new, min=1e-10)
     pi_new = pi_new / pi_new.sum()
 
+    # ── Update per-cluster sigma2_k (only if learned, not fixed) ─────────────
+    if state.get('learn_sigma2', True):
+        sigma2_new = torch.zeros(N, dtype=torch.float64)
+        for k in range(N):
+            r_k   = r[:, k]
+            R_k   = R[k].item()
+            delta = X - centers_new[k]
+            lp    = f_centers_new[k] + (jacobians_new[k] @ delta.T).T
+            eps   = F - lp
+            sq    = (eps ** 2).sum(dim=1)
+            sigma2_new[k] = max((r_k * sq).sum().item() / (d * R_k), 1e-3)
+    else:
+        sigma2_new = state['sigma2']
+
     return {
         'pi':          pi_new,
         'centers':     centers_new,
         'covariances': covariances_new,
         'f_centers':   f_centers_new,
         'jacobians':   jacobians_new,
+        'sigma2':      sigma2_new,
+        'learn_sigma2': state.get('learn_sigma2', True),
         'N':           N,
         'd':           d,
         'P':           P,
@@ -294,6 +316,8 @@ def _remove_cluster(state: dict, k: int) -> dict:
         'covariances': state['covariances'][keep],
         'f_centers':   state['f_centers'][keep],
         'jacobians':   state['jacobians'][keep],
+        'sigma2':      state['sigma2'][keep],
+        'learn_sigma2': state.get('learn_sigma2', True),
         'N':           state['N'] - 1,
         'd':           state['d'],
         'P':           state['P'],

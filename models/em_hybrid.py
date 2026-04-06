@@ -80,7 +80,6 @@ def m_step_hybrid(
     """
     N       = state['N']
     d       = state['d']
-    sigma2  = hp['sigma2']
     alpha0  = hp['alpha0']
     mu0     = hp['mu0']
     Lambda0 = hp['Lambda0']
@@ -111,11 +110,12 @@ def m_step_hybrid(
         S_x = r_k @ X                                      # (d,)
         S_f = r_k @ F                                      # (d,)
 
-        JtJ  = J_k.T @ J_k                                 # (d, d)
-        LHS  = Lambda0 + R_k * Sigma_inv[k] + (R_k / sigma2) * JtJ
+        s2_k = state['sigma2'][k]                             # per-cluster
+        JtJ  = J_k.T @ J_k                                    # (d, d)
+        LHS  = Lambda0 + R_k * Sigma_inv[k] + (R_k / s2_k) * JtJ
         RHS  = (Lambda0 @ mu0
                 + Sigma_inv[k] @ S_x
-                - (1.0 / sigma2) * (J_k.T @ (S_f - R_k * f_k - J_k @ S_x)))
+                - (1.0 / s2_k) * (J_k.T @ (S_f - R_k * f_k - J_k @ S_x)))
 
         c_k_new = torch.linalg.solve(LHS, RHS)             # (d,)
         centers_new[k] = c_k_new
@@ -132,12 +132,28 @@ def m_step_hybrid(
     pi_new = torch.clamp(pi_new, min=1e-10)
     pi_new = pi_new / pi_new.sum()
 
+    # ── Step 5 — per-cluster sigma2_k update (only if learned) ──────────────
+    if state.get('learn_sigma2', True):
+        sigma2_new = torch.zeros(N, dtype=torch.float64)
+        for k in range(N):
+            r_k   = r[:, k]
+            R_k   = R[k].item()
+            delta = X - centers_new[k]
+            lp    = f_centers_new[k] + (jacobians_new[k] @ delta.T).T
+            eps   = F - lp
+            sq    = (eps ** 2).sum(dim=1)
+            sigma2_new[k] = max((r_k * sq).sum().item() / (d * R_k), 1e-3)
+    else:
+        sigma2_new = state['sigma2']
+
     return {
         'pi':          pi_new,
         'centers':     centers_new,
         'covariances': covariances_new,
         'f_centers':   f_centers_new,
         'jacobians':   jacobians_new,
+        'sigma2':      sigma2_new,
+        'learn_sigma2': state.get('learn_sigma2', True),
         'N':           N, 'd': d, 'P': P,
     }
 

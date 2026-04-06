@@ -28,7 +28,6 @@ def compute_elbo(
     Any decrease signals a bug in the M-step.
     """
     N      = state['N']
-    sigma2 = hp['sigma2']
 
     # Term 1 — mixing weight log-likelihood
     log_pi = torch.log(state['pi'])                # (N,)
@@ -40,13 +39,13 @@ def compute_elbo(
     )                                              # (P, N)
     term2    = (r * log_prox).sum()
 
-    # Term 3 — residual log-likelihood (novel term)
+    # Term 3 — residual log-likelihood (CWM regression term)
     log_resid = residual_logpdf_batch(
         X, F,
         state['centers'],
         state['f_centers'],
         state['jacobians'],
-        sigma2,
+        state['sigma2'],
     )                                              # (P, N)
     term3     = (r * log_resid).sum()
 

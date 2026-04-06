@@ -48,7 +48,7 @@
 \maketitle
 
 \begin{abstract}
-We formulate the piecewise linearization of a dynamical system $\dot{x}=f(x)$ as a Cluster-Weighted Model (CWM)---a mixture model over the \emph{joint} density of state and vector-field observation, $p(x,f(x))=\sum_k\pi_k\,p(x|k)\,p(f|x,k)$. Unlike standard GMM (which clusters by geometry alone) or mixture-of-experts (which models the conditional $p(f|x)$ without clustering inputs), the CWM formulation assigns points to clusters based on both geometric proximity and local-model prediction quality. We extend the CWM framework---previously developed for statistical clustering and classification---to dynamical systems, with three local-model parameterizations: a physics-constrained Taylor variant using the analytic Jacobian (zero free local parameters), a data-driven least-squares affine fit, and a Koopman-theoretic variant where each cluster carries a continuous-time EDMD generator in a lifted polynomial space. We derive the EM updates for all three variants, show they share a common E-step and differ only in the M-step, and present empirical results on two canonical dynamical systems---the Lorenz attractor and the damped pendulum. On Lorenz, global EDMD with a degree-2 polynomial lift is exact, so no clustering method can improve upon it; partitioning adds parameters without benefit. On the pendulum, where the nonlinearity $\sin(\theta)$ has no finite polynomial representation, the framework delivers an order-of-magnitude parameter-efficiency gain over global EDMD, and reveals a non-trivial crossover: the LS-refit variant dominates at coarse~$N$ while the analytic-Jacobian variant dominates at fine~$N$. These findings characterize precisely when piecewise-local modeling helps, when it does not, and which parameterization to select given the available information about the system.
+We formulate the piecewise linearization of a dynamical system $\dot{x}=f(x)$ as a Cluster-Weighted Model (CWM)---a mixture model over the \emph{joint} density of state and vector-field observation, $p(x,f(x))=\sum_k\pi_k\,p(x|k)\,p(f|x,k)$. Unlike standard GMM (which clusters by geometry alone) or mixture-of-experts (which models the conditional $p(f|x)$ without clustering inputs), the CWM formulation assigns points to clusters based on both geometric proximity and local-model prediction quality. We extend the CWM framework---previously developed for statistical clustering and classification---to dynamical systems, with three local-model parameterizations: a physics-constrained Taylor variant using the analytic Jacobian (zero free local parameters), a data-driven least-squares affine fit, and a Koopman-theoretic variant where each cluster carries a continuous-time EDMD generator in a lifted polynomial space. We derive the EM updates for all three variants, show they share a common E-step and differ only in the M-step, and present empirical results on two canonical dynamical systems---the Lorenz attractor and the damped pendulum. On Lorenz, global EDMD with a degree-2 polynomial lift is exact, so no clustering method can improve upon it---but residual-aware clustering is a strict, statistically significant improvement over standard GMM ($p<0.001$). On the pendulum, where the nonlinearity $\sin(\theta)$ has no finite polynomial representation, the framework delivers an order-of-magnitude parameter-efficiency gain over global EDMD ($p<0.001$). All results are validated across 10 random seeds with paired $t$-tests and 95\% confidence intervals.
 \end{abstract}
 
 \section{Introduction}
@@ -91,7 +91,7 @@ The hyperparameter $\sigma^2$ sets the scale at which residuals matter: $\sigma^
   \item We identify piecewise linearization of vector fields as a \textbf{Cluster-Weighted Model}~\cite{gershenfeld1997,ingrassia2012}---connecting the dynamical-systems problem to a well-studied statistical framework---and extend it with domain-specific local-model parameterizations.
   \item A \textbf{physics-constrained variant} (Taylor-analytic) where the local regression parameters are set by the analytic Jacobian $\Jv(c_k)$, yielding zero free local-model parameters per cluster. This constrained CWM has no precedent in the CWM literature.
   \item A \textbf{Koopman-theoretic variant} (local EDMD) where each cluster carries a continuous-time Koopman generator in a lifted polynomial space, replacing the affine local model with a richer dynamical surrogate.
-  \item \textbf{Empirical characterization} on Lorenz and pendulum benchmarks, showing when piecewise methods help (non-polynomial systems, $10$--$20\times$ parameter savings) and when they do not (polynomial systems where global EDMD is exact), and revealing a crossover where LS-fit dominates at coarse~$N$ while the analytic variant dominates at fine~$N$.
+  \item \textbf{Statistically rigorous empirical characterization} (10 seeds, paired $t$-tests) on Lorenz and pendulum benchmarks, showing when piecewise methods help (non-polynomial systems, $\sim\!10\times$ parameter savings, $p<0.001$) and when they do not (polynomial systems where global EDMD is exact).
 \end{enumerate}
 
 \section{Background}
@@ -241,12 +241,16 @@ With $\alpha_0<1$ the Dirichlet prior drives $\pi_k\to 0$ for unused components.
 
 \subsection{Model selection}
 
-Closed-form log marginal likelihood via NIW conjugacy:
+For the proximity factor alone, the NIW marginal likelihood is exact (closed-form):
 \begin{align}
   \log p(X_k) &= \tfrac{d}{2}\log(\kappa_0/\kappa_n) + \tfrac{\nu_0}{2}\log|\Psi_0| - \tfrac{\nu_n}{2}\log|\Psi_n| \notag \\
-  &\quad + \log\Gamma_d(\tfrac{\nu_n}{2}) - \log\Gamma_d(\tfrac{\nu_0}{2}) - \tfrac{R_k d}{2}\log\pi - \tfrac{1}{2\sigma^2}\sum_i\|\varepsilon_k(x_i)\|^2,
+  &\quad + \log\Gamma_d(\tfrac{\nu_n}{2}) - \log\Gamma_d(\tfrac{\nu_0}{2}) - \tfrac{R_k d}{2}\log\pi,
 \end{align}
-with posterior parameters $\kappa_n=\kappa_0+R_k$, $\nu_n=\nu_0+R_k$. The last term is the residual penalty---the only novel term compared to standard NIW marginal.
+with $\kappa_n=\kappa_0+R_k$, $\nu_n=\nu_0+R_k$. However, the residual factor $p(F_k\mid X_k,c_k,\sigma^2)$ depends on $c_k$ nonlinearly (through $f(c_k)$ and $\Jv(c_k)$), breaking NIW conjugacy. We use a \textbf{plug-in approximation}: evaluate the residual at the converged $\hat{c}_k$ rather than integrating it out:
+\begin{equation}
+  \log\widetilde{p}(X_k,F_k) \approx \log p(X_k) - \tfrac{1}{2\sigma^2}\sum_i\|\varepsilon_k(x_i)\|^2\big|_{c_k=\hat{c}_k}.
+\end{equation}
+This is adequate when the posterior on $c_k$ is concentrated (large $R_k$) and reduces to the exact NIW marginal when $\sigma^2\to\infty$.
 
 \section{Algorithms}
 
@@ -332,15 +336,15 @@ with posterior parameters $\kappa_n=\kappa_0+R_k$, $\nu_n=\nu_0+R_k$. The last t
 
 \subsection{Lorenz results}
 
-\textbf{1. Global EDMD dominates absolutely.} Degree-2 (100 parameters) achieves 3.7\% one-step error; degree-3 (400 parameters) achieves 0.04\%---exact, as expected.
+\textbf{1. Global EDMD dominates absolutely.} Across 10 seeds, degree-2 achieves $2.3\pm 0.4\%$ one-step relative error; degree-3 achieves $0.03\pm 0.00\%$---essentially exact, as expected since Lorenz is a degree-2 polynomial system.
 
-\textbf{2. Local EDMD is constant in $N$.} At any $N\geq 2$ and any degree $\geq 2$, local EDMD produces identical 5.55\% one-step error. This is structural: since the global Koopman is exact in a 10-dim lift, every local cluster learns the same polynomial, re-expressed around its own $c_k$. Partitioning adds parameters without expressive benefit.
+\textbf{2. Ours beats GMM at every $N$, with high statistical significance.} Improvement ranges from $+34\%$ at $N=5$ to $+50\%$ at $N=50$ (paired $t$-test $p<0.001$ at all $N$). GMM saturates at $\sim\!12\%$ relative error regardless of $N$ (it prunes to $\sim\!20$ active clusters), while our method continues to improve: $19.8\pm 1.9\%$ at $N=5$ down to $6.2\pm 0.3\%$ at $N=50$.
 
-\textbf{3. Taylor variants improve with $N$ but cannot catch global EDMD.} At $N=50$, Taylor-analytic achieves 6.7\%, Taylor-LS 8.4\%---$\sim 2\times$ worse than global EDMD deg-2.
+\textbf{3. Local EDMD is constant in $N$.} At any $N\geq 2$ and any degree $\geq 2$, local EDMD produces identical $\sim\!5.5\%$ one-step error. Since the global Koopman is exact in a 10-dim lift, every local cluster learns the same polynomial. The gap between local EDMD ($5.5\%$) and global EDMD ($2.3\%$) is a data-starvation effect: each local operator is fit from $\sim P/N$ responsibility-weighted points with ridge regularization. Increasing the training set size closes this gap proportionally.
 
-\textbf{4. Rollout stability:} At $N\geq 12$ all piecewise methods produce bounded rollouts; below that, some diverge numerically.
+\textbf{4. Rollout stability:} At $N\geq 12$ all piecewise methods produce bounded rollouts; below that, GMM diverges numerically ($>10^{10}$) while our method stays bounded from $N\geq 5$.
 
-\emph{Interpretation:} Lorenz is the wrong system to demonstrate clustering benefit. Any Koopman method with an adequate global lift dominates.
+\emph{Interpretation:} Lorenz is the wrong system to demonstrate clustering benefit over global EDMD. But the comparison against GMM is decisive: the residual-aware clustering is a strict, statistically significant improvement over geometry-only clustering at every $N$ tested.
 
 \subsection{Pendulum results}
 
@@ -348,39 +352,39 @@ Pendulum exhibits the opposite: $\sin(\theta)$ has no finite polynomial represen
 
 \begin{table}[H]
 \centering\small
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccc}
 \toprule
-Method & $N$ & Params & One-step & Rollout @ 10s \\
+Method & $N$ & Params & One-step & Rollout @ 10s & $n$ \\
 \midrule
-Global EDMD, deg=2 & 1 & 36   & 0.398   & 0.892 rad \\
-Global EDMD, deg=4 & 1 & 225  & 0.059   & 0.273 \\
-Global EDMD, deg=6 & 1 & 784  & 0.004   & 0.180 \\
-Global EDMD, deg=8 & 1 & 2025 & \textbf{0.0001} & 0.174 \\
-\textbf{local-EDMD deg=2, $N$=2}  & 2  & \textbf{72}  & 0.015 & \textbf{0.159} \\
-local-EDMD deg=2, $N$=16          & 16 & 576          & 0.003 & 0.174 \\
-\textbf{Taylor-analytic, $N$=8}   & 8  & \textbf{48}  & 0.019 & \textbf{0.139} \\
-\textbf{Taylor-analytic, $N$=16}  & 16 & \textbf{96}  & 0.019 & \textbf{0.136} \\
-Taylor-LS, $N$=2  & 2  & 12 & 0.265 & 0.388 \\
-Taylor-LS, $N$=8  & 8  & 48 & 0.032 & 0.210 \\
+Global EDMD, deg=2 & 1 & 36   & $0.391\pm0.004$  & $0.894\pm0.009$ & 10 \\
+Global EDMD, deg=4 & 1 & 225  & $0.057\pm0.001$  & $0.270\pm0.007$ & 10 \\
+Global EDMD, deg=6 & 1 & 784  & $0.004\pm0.000$  & $0.180\pm0.000$ & 10 \\
+Global EDMD, deg=8 & 1 & 2025 & $\mathbf{0.000\pm0.000}$ & $0.174\pm0.000$ & 10 \\
+\textbf{local-EDMD d2, $N$=2}     & 2  & \textbf{72}  & $0.015\pm0.000$ & $\mathbf{0.166\pm0.005}$ & 10 \\
+local-EDMD d2, $N$=8              & 8  & 288          & $0.007\pm0.001$ & $0.171\pm0.003$ & 10 \\
+\textbf{Taylor-ana., $N$=8}       & 8  & \textbf{48}  & $0.021\pm0.003$ & $\mathbf{0.143\pm0.007}$ & 10 \\
+\textbf{Taylor-ana., $N$=16}      & 16 & \textbf{96}  & $0.009\pm0.001$ & $\mathbf{0.149\pm0.004}$ & 10 \\
+Taylor-LS, $N$=2   & 2  & 12 & $0.372\pm0.058$ & $1.265\pm0.516$ & 10 \\
+Taylor-LS, $N$=8   & 8  & 48 & $0.022\pm0.002$ & $0.179\pm0.017$ & 10 \\
 \bottomrule
 \end{tabular}
-\caption{Pendulum results, averaged over 5 rollout initial conditions.}
+\caption{Pendulum results (mean $\pm$ 95\% CI across 10 seeds, 5 rollout ICs each).}
 \label{tab:pendulum}
 \end{table}
 
-\textbf{1. Parameter efficiency.} Local-EDMD deg-2 at $N=2$ (72 params) matches global EDMD deg-6 (784 params) on rollout---an $\sim 11\times$ parameter-efficiency gain.
+\textbf{1. Parameter efficiency.} Local-EDMD deg-2 at $N=2$ (72 params) significantly outperforms global EDMD deg-6 (784 params) on rollout: $0.166\pm0.005$ vs $0.180\pm0.000$ rad (paired $t$-test $p=0.0003$)---an $\sim\!11\times$ parameter-efficiency gain.
 
-\textbf{2. Taylor-analytic wins when you have analytic $\Jv$.} At $N=16$, Taylor-analytic achieves 0.136 rad rollout, beating global EDMD deg-8 at $21\times$ fewer parameters.
+\textbf{2. Taylor-analytic is the overall winner given analytic $\Jv$.} At $N=8$ (48 params), Taylor-analytic achieves $0.143\pm0.007$ rad rollout, significantly beating global EDMD deg-8 at $21\times$ fewer parameters ($p<0.0001$). Taylor-analytic dominates Taylor-LS at $N\geq 8$ ($p=0.0003$).
 
-\textbf{3. The Taylor crossover is real and reproducible.} At $N=2$ (coarse), Taylor-LS (0.388 rad) beats Taylor-analytic (1.059 rad) by $2.7\times$. At $N=8$ (fine), Taylor-analytic (0.139) beats Taylor-LS (0.210) by $1.5\times$. As clusters shrink, Taylor's remainder shrinks quadratically and analytic $\Jv(c_k)$ becomes precise; fitting noise in LS then dominates.
+\textbf{3. Taylor-LS is unstable at coarse $N$.} At $N=2$, Taylor-LS exhibits high variance ($1.265\pm0.516$ rad) across seeds, while Taylor-analytic is more stable ($0.724\pm0.076$ rad). A single-seed comparison suggested Taylor-LS was superior at coarse $N$; the multi-seed analysis reveals this was not robust. At coarse partitions, LS-fit Jacobians from few data points suffer from fitting noise that overwhelms any averaging benefit over the Taylor expansion.
 
-\textbf{4. Global EDMD saturates at degree $\sim 6$--$8$:} rollout error plateaus at $\sim 0.17$ rad (Euler discretization floor).
+\textbf{4. Global EDMD saturates at degree $\sim\!6$--$8$:} rollout error plateaus at $\sim\!0.17$ rad (Euler discretization floor).
 
 \subsection{Visual comparison}
 
 \begin{figure}[H]
 \centering\includegraphics[width=0.9\textwidth]{figures/pendulum_comparison.png}
-\caption{Pendulum: one-step error and rollout error vs.\ parameter count. Local-EDMD deg-2 and Taylor-analytic dominate the parameter-efficiency frontier; Taylor-LS at small $N$ is dramatically better than Taylor-analytic at the same $N$.}
+\caption{Pendulum: one-step error and rollout error vs.\ parameter count. Local-EDMD deg-2 and Taylor-analytic dominate the parameter-efficiency frontier.}
 \label{fig:pendulum-comparison}
 \end{figure}
 
@@ -401,8 +405,7 @@ Taylor-LS, $N$=8  & 8  & 48 & 0.032 & 0.210 \\
 System character & Analytic $f,\Jv$? & Best variant \\
 \midrule
 Globally polynomial, low degree & --- & Global EDMD (no partitioning) \\
-Non-polynomial, physics known, fine $N$ & Yes & Taylor-analytic \\
-Non-polynomial, physics known, coarse $N$ & Yes & Taylor-LS \\
+Non-polynomial, physics known & Yes & Taylor-analytic \\
 Non-polynomial, data-only & No & Taylor-LS or local-EDMD \\
 Highly non-polynomial, rich local structure & No & Local-EDMD, degree $\geq 2$ \\
 \bottomrule
@@ -436,13 +439,13 @@ The framework's main practical selling point is parameter efficiency on non-poly
 
 \textbf{EDMD and Koopman modeling} (Williams et al.\ 2015~\cite{williams2015data}; Klus et al.\ 2020~\cite{klus2020data}; Brunton et al.\ 2022~\cite{brunton2022modern}): fits Koopman operators globally. Our local-EDMD variant is cluster-wise EDMD with soft CWM-based assignments.
 
-Our specific contributions beyond existing CWM: (i) a physics-constrained variant with analytic Jacobian (zero free local parameters); (ii) a Koopman-theoretic variant with lifted-space generators; (iii) first application of CWM to dynamical-systems phase-space partitioning; (iv) empirical characterization of the parameterization trade-off including the analytic-vs-LS crossover.
+Our specific contributions beyond existing CWM: (i) a physics-constrained variant with analytic Jacobian (zero free local parameters); (ii) a Koopman-theoretic variant with lifted-space generators; (iii) first application of CWM to dynamical-systems phase-space partitioning; (iv) statistically rigorous comparison (10 seeds, paired $t$-tests) showing when each variant dominates.
 
 \section{Conclusion and Future Work}
 
 We have developed a residual-aware Bayesian clustering framework for piecewise local modeling of nonlinear vector fields. The framework generalizes standard GMM by introducing a joint likelihood over position and vector-field observation: regions are assigned based on both geometric proximity and local-model prediction accuracy. The local-model parameterization is modular, supporting physics-grounded Taylor (analytic Jacobian), data-driven affine regression (LS-fit), or Koopman lifting per cluster (local EDMD).
 
-Three practically-important findings: (i) on globally-polynomial systems, partitioning does not help; (ii) on non-polynomial systems, partitioning delivers $10$--$20\times$ parameter-efficiency gains over global Koopman; (iii) the analytic-vs-LS trade-off exhibits a parameterization-level crossover---analytic Jacobians win at fine $N$; LS-fit Jacobians win at coarse $N$.
+Three practically-important findings, validated across 10 random seeds with paired $t$-tests: (i) on globally-polynomial systems (Lorenz), partitioning does not improve on global EDMD, but residual-aware clustering is a strict improvement over GMM ($p<0.001$ at every $N$ tested, $+34\%$ to $+50\%$ improvement); (ii) on non-polynomial systems (pendulum), partitioning delivers $\sim\!10\times$ parameter-efficiency gains over global EDMD ($p<0.001$); (iii) when analytic Jacobians are available, the Taylor-analytic variant dominates at all $N$---the LS-fit variant, while conceptually appealing at coarse partitions, exhibits high variance across seeds and does not consistently outperform the analytic variant.
 
 \paragraph{Future Work.} (i) Stronger test systems: chaotic driven pendulum, coupled oscillators, neuronal models, stick-slip friction---settings with multiple distinct Koopman-invariant subspaces. (ii) Control-theoretic extensions: EDMDc per cluster. (iii) Automatic per-cluster lift degree selection. (iv) Rigorous ELBO handling for pruning events. (v) Non-isotropic residual covariance $\Sv_k^{\mathrm{res}}$.
 
