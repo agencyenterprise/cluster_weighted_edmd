@@ -111,6 +111,7 @@ def m_step(X, X_next, r, state, hp):
         R_k = R[k].item()
 
         hat_Lambda = Lambda0 + R_k * Sigma_inv[k]
+        hat_Lambda = hat_Lambda + 1e-6 * eye_d  # regularize for near-singular cases
         rhs        = Lambda0 @ mu0 + Sigma_inv[k] @ (r_k @ X)
         c_k_new    = torch.linalg.solve(hat_Lambda, rhs)
         centers_new[k] = c_k_new
