@@ -29,7 +29,7 @@ def weighted_discrete_edmd(X, X_next, r_k, c_k, exps):
     A = Phi_curr * sqrt_w
     B = Phi_next * sqrt_w
 
-    result = torch.linalg.lstsq(A, B)
+    result = torch.linalg.lstsq(A, B, driver='gelsd')
     return result.solution.T
 
 
@@ -115,11 +115,7 @@ def m_step(X, X_next, r, state, hp):
         c_k_new    = torch.linalg.solve(hat_Lambda, rhs)
         centers_new[k] = c_k_new
 
-        K_k = weighted_discrete_edmd(X, X_next, r_k, c_k_new, exps)
-        if torch.isnan(K_k).any():
-            K_ops_new[k] = state['K_ops'][k]  # keep previous
-        else:
-            K_ops_new[k] = K_k
+        K_ops_new[k] = weighted_discrete_edmd(X, X_next, r_k, c_k_new, exps)
 
         diff    = X - c_k_new
         scatter = (r_k.unsqueeze(1) * diff).T @ diff
@@ -256,11 +252,7 @@ def initialize(X, X_next, N, hp, degree=2, seed=42):
         if r_k.sum() < Mdim:
             K_ops[k] = torch.eye(Mdim, dtype=dt, device=dev)
         else:
-            K_k = weighted_discrete_edmd(X, X_next, r_k, centers[k], exps)
-            if torch.isnan(K_k).any():
-                K_ops[k] = torch.eye(Mdim, dtype=dt, device=dev)
-            else:
-                K_ops[k] = K_k
+            K_ops[k] = weighted_discrete_edmd(X, X_next, r_k, centers[k], exps)
 
     # Calibrate sigma2
     if hp.get('sigma2', 'auto') == 'auto':
@@ -272,8 +264,7 @@ def initialize(X, X_next, N, hp, degree=2, seed=42):
                 continue
             eps_k = X_next[mask] - X_pred[mask, k]
             sq = (eps_k ** 2).sum(dim=1)
-            med = sq.median().item()
-            sigma2[k] = max(med / d, 1e-6) if not np.isnan(med) else 1e-6
+            sigma2[k] = max(sq.median().item() / d, 1e-6)
         print(f"    sigma2 calibrated per cluster: mean={sigma2.mean().item():.6f}, "
               f"range=[{sigma2.min().item():.6f}, {sigma2.max().item():.6f}]")
         learn_sigma2 = True
