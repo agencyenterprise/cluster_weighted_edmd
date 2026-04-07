@@ -48,23 +48,32 @@ All share the same E-step; they differ only in the M-step.
     │   ├── figures/                           Generated plots (git-tracked)
     │   └── data/                              Raw experiment data JSON (git-ignored)
     │
+    ├── patches/
+    │   └── fix_pykoopman_sklearn.py           pykoopman/sklearn compat patch
+    │
+    ├── setup.sh                             Install deps + apply patches
     ├── requirements.txt
     └── README.md
 
 ## Setup
 
+    ./setup.sh
+
+Or manually:
+
     pip install -r requirements.txt
+    python patches/fix_pykoopman_sklearn.py
 
 ## Quick start
 
-    # Lorenz full experiment (sanity tests + EM fit + plots)
-    python -m validation.validation_lorenz
+    # Full statistical validation (10 seeds, both systems)
+    python -m validation.run_statistical
 
-    # Pendulum comparison — the key result
-    python -m validation.validation_pendulum
+    # Quick test (1 seed, small N)
+    python -m validation.run_statistical --seeds 42 --lorenz-N 5 --pendulum-N 4 --n-iter 20
 
-    # Lorenz: sweep cluster count N
-    python -m validation.validation_lorenz_sweep_N
+    # Only Lorenz
+    python -m validation.run_statistical --skip-pendulum
 
-    # Lorenz: compare Taylor-analytic vs Taylor-LS vs GMM
-    python -m validation.validation_lorenz_hybrid
+    # Custom seeds
+    python -m validation.run_statistical --seeds 1 42 101 307

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Responsibility Computation</title>
+<script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: white; font-family: 'Times New Roman', Times, serif; padding: 32px; max-width: 720px; margin: 0 auto; }
+.title { text-align: center; font-size: 13px; font-weight: bold; color: #333; margin-bottom: 20px; letter-spacing: 0.5px; text-transform: uppercase; }
+.eq-box { background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; padding: 14px 18px; margin: 12px 0; text-align: center; font-size: 14px; }
+.factor-row { display: flex; gap: 12px; margin: 16px 0; }
+.factor { flex: 1; border: 2px solid #ccc; border-radius: 6px; padding: 12px 14px; text-align: center; }
+.factor.prior { border-color: #999; background: #f9f9f9; }
+.factor.prox { border-color: #4285f4; background: #e8f0fe; }
+.factor.resid { border-color: #ea4335; background: #fce8e8; }
+.factor-label { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.factor.prior .factor-label { color: #666; }
+.factor.prox .factor-label { color: #4285f4; }
+.factor.resid .factor-label { color: #ea4335; }
+.factor-eq { font-size: 13px; color: #222; margin: 6px 0; }
+.factor-desc { font-size: 10.5px; color: #666; line-height: 1.4; margin-top: 4px; }
+.multiply { display: flex; align-items: center; justify-content: center; font-size: 22px; color: #888; flex-shrink: 0; width: 20px; }
+.example { border: 1px solid #ddd; border-radius: 6px; padding: 14px 18px; margin: 16px 0; background: #fafafa; }
+.example-title { font-size: 11px; font-weight: bold; color: #333; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+.cluster-row { display: flex; align-items: center; margin: 5px 0; font-size: 12px; }
+.cluster-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; }
+.bar-bg { height: 16px; background: #eee; border-radius: 3px; flex: 1; margin: 0 8px; position: relative; }
+.bar-fill { height: 100%; border-radius: 3px; position: absolute; left: 0; top: 0; }
+.bar-val { font-size: 11px; color: #333; width: 45px; text-align: right; flex-shrink: 0; font-weight: bold; }
+.note { font-size: 11px; color: #666; text-align: center; margin-top: 14px; line-height: 1.5; font-style: italic; }
+</style>
+</head>
+<body>
+
+<div class="title">E-Step: How Responsibilities $r_{ik}$ Are Computed</div>
+
+<div class="eq-box">
+  $r_{ik} = \dfrac{\pi_k \cdot \mathcal{N}(x_i;\, c_k, \Sigma_k) \cdot \mathcal{N}(\varepsilon_k;\, 0,\, \sigma_k^2 I)}{\displaystyle\sum_{j=1}^{N} \pi_j \cdot \mathcal{N}(x_i;\, c_j, \Sigma_j) \cdot \mathcal{N}(\varepsilon_j;\, 0,\, \sigma_j^2 I)}$
+</div>
+
+<div class="factor-row">
+  <div class="factor prior">
+    <div class="factor-label">Prior</div>
+    <div class="factor-eq">$\pi_k$</div>
+    <div class="factor-desc">How large is cluster $k$?</div>
+  </div>
+  <div class="multiply">×</div>
+  <div class="factor prox">
+    <div class="factor-label">Proximity</div>
+    <div class="factor-eq">$\mathcal{N}(x_i;\, c_k, \Sigma_k)$</div>
+    <div class="factor-desc">How close is $x_i$ to center $c_k$?</div>
+  </div>
+  <div class="multiply">×</div>
+  <div class="factor resid">
+    <div class="factor-label">Residual</div>
+    <div class="factor-eq">$\mathcal{N}(\varepsilon_k;\, 0,\, \sigma_k^2 I)$</div>
+    <div class="factor-desc">How well does $L_k$ predict $f(x_i)$?</div>
+  </div>
+</div>
+
+<div class="example">
+  <div class="example-title">Example: point $x_i$ scored against 3 clusters</div>
+
+  <div class="cluster-row">
+    <div class="cluster-dot" style="background: #4285f4;"></div>
+    <span style="width: 65px;">Cluster 1</span>
+    <span style="width: 100px; font-size: 10px; color: #888;">close + good $L_1$</span>
+    <div class="bar-bg"><div class="bar-fill" style="width: 95%; background: #4285f4;"></div></div>
+    <div class="bar-val">$r_{i1}=0.95$</div>
+  </div>
+
+  <div class="cluster-row">
+    <div class="cluster-dot" style="background: #34a853;"></div>
+    <span style="width: 65px;">Cluster 2</span>
+    <span style="width: 100px; font-size: 10px; color: #888;">far + ok $L_2$</span>
+    <div class="bar-bg"><div class="bar-fill" style="width: 4.5%; background: #34a853;"></div></div>
+    <div class="bar-val">$r_{i2}=0.05$</div>
+  </div>
+
+  <div class="cluster-row">
+    <div class="cluster-dot" style="background: #ea4335;"></div>
+    <span style="width: 65px;">Cluster 3</span>
+    <span style="width: 100px; font-size: 10px; color: #888;">medium + bad $L_3$</span>
+    <div class="bar-bg"><div class="bar-fill" style="width: 0.5%; background: #ea4335;"></div></div>
+    <div class="bar-val">$r_{i3}=0.00$</div>
+  </div>
+</div>
+
+<div class="note">
+  In standard GMM, only the proximity factor exists.<br>
+  The residual factor is what makes the clustering <b>dynamics-aware</b>:<br>
+  cluster 3 is closer than cluster 2, but its local model predicts $f(x_i)$ badly → rejected.
+</div>
+
+</body>
+</html>

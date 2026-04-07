@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Local Model Variants</title>
+<script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: white; font-family: 'Times New Roman', Times, serif; padding: 32px; max-width: 780px; margin: 0 auto; }
+.title { text-align: center; font-size: 13px; font-weight: bold; color: #333; margin-bottom: 20px; letter-spacing: 0.5px; text-transform: uppercase; }
+.variants { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.card { border: 2px solid #ccc; border-radius: 6px; padding: 14px 16px; background: white; }
+.card.highlight { border-color: #333; background: #f8f8f8; }
+.card-letter { font-size: 11px; font-weight: bold; color: white; background: #333; display: inline-block; padding: 1px 8px; border-radius: 3px; margin-bottom: 6px; }
+.card-letter.a { background: #4285f4; }
+.card-letter.b { background: #34a853; }
+.card-letter.c { background: #f9ab00; }
+.card-letter.d { background: #ea4335; }
+.card-name { font-size: 13px; font-weight: bold; color: #333; margin-bottom: 8px; }
+.card-eq { font-size: 12.5px; margin: 6px 0; color: #222; }
+.card-detail { font-size: 11px; color: #666; line-height: 1.5; margin-top: 6px; }
+.card-detail b { color: #333; }
+.badge { display: inline-block; font-size: 9px; padding: 1px 5px; border-radius: 2px; margin-left: 4px; }
+.badge.physics { background: #e8f0fe; color: #4285f4; border: 1px solid #4285f4; }
+.badge.data { background: #fef7e0; color: #f9ab00; border: 1px solid #f9ab00; }
+.badge.best { background: #fce8e8; color: #ea4335; border: 1px solid #ea4335; }
+.shared { text-align: center; margin-top: 18px; padding: 12px; background: #f5f5f5; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; color: #444; }
+</style>
+</head>
+<body>
+
+<div class="title">Local-Model Variants ($L_k$)</div>
+
+<div class="variants">
+
+<div class="card">
+  <div class="card-letter a">A</div> <span class="badge physics">physics</span>
+  <div class="card-name">Taylor-Analytic</div>
+  <div class="card-eq">$L_k(x) = f(c_k) + J(c_k)(x - c_k)$</div>
+  <div class="card-detail">
+    <b>Params/cluster:</b> 0 (uses analytic $f$, $J$)<br>
+    <b>Integrator:</b> Euler<br>
+    <b>Requires:</b> known ODE + Jacobian<br>
+    <b>Best for:</b> physics-known, fine $N$
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-letter b">B</div> <span class="badge data">data-driven</span>
+  <div class="card-name">Taylor-LS (Hybrid)</div>
+  <div class="card-eq">$L_k(x) = f_k + J_k(x - c_k)$</div>
+  <div class="card-detail">
+    <b>Params/cluster:</b> $d + d^2$<br>
+    <b>Fit:</b> weighted LS on $(x_i, f_i)$<br>
+    <b>Integrator:</b> Euler<br>
+    <b>Requires:</b> vector-field observations
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-letter c">C</div> <span class="badge data">data-driven</span>
+  <div class="card-name">Local Continuous EDMD</div>
+  <div class="card-eq">$L_k(x) = [M_k \cdot \Phi(x - c_k)]_{1:d}$</div>
+  <div class="card-detail">
+    <b>Params/cluster:</b> $\binom{d+p}{p}^2$<br>
+    <b>Fit:</b> weighted LS: $\nabla\Phi \cdot f \approx M_k \cdot \Phi$<br>
+    <b>Integrator:</b> Euler ($x_{t+1} = x_t + \Delta t \cdot L_k$)<br>
+    <b>Requires:</b> vector-field observations
+  </div>
+</div>
+
+<div class="card highlight">
+  <div class="card-letter d">D</div> <span class="badge best">best on Lorenz</span>
+  <div class="card-name">Local Discrete EDMD</div>
+  <div class="card-eq">$\hat{x}_{t+1} = c_k + [K_k \cdot \Phi(x_t - c_k)]_{1:d}$</div>
+  <div class="card-detail">
+    <b>Params/cluster:</b> $\binom{d+p}{p}^2$<br>
+    <b>Fit:</b> weighted lstsq: $\Phi(x_{t+1}) \approx K_k \cdot \Phi(x_t)$<br>
+    <b>Integrator:</b> none (direct prediction)<br>
+    <b>Requires:</b> consecutive state pairs only
+  </div>
+</div>
+
+</div>
+
+<div class="shared">
+  All variants share the <b>same E-step</b> (Bayes' theorem with proximity + residual factors).<br>
+  They differ only in the M-step: how $L_k$ is parameterized and fit from responsibility-weighted data.
+</div>
+
+</body>
+</html>

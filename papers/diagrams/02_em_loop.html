@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EM Loop</title>
+<script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: white; font-family: 'Times New Roman', Times, serif; padding: 32px; max-width: 760px; margin: 0 auto; }
+.title { text-align: center; font-size: 13px; font-weight: bold; color: #333; margin-bottom: 24px; letter-spacing: 0.5px; text-transform: uppercase; }
+.flow { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.box { border: 2px solid #333; border-radius: 6px; padding: 14px 18px; max-width: 580px; width: 100%; }
+.box.init { background: #f0f0f0; border-color: #999; }
+.box.estep { background: #e8f0fe; border-color: #4285f4; }
+.box.mstep { background: #fef7e0; border-color: #f9ab00; }
+.box.prune { background: #fce8e8; border-color: #ea4335; }
+.box.check { background: #e8f5e9; border-color: #34a853; }
+.box-title { font-size: 12px; font-weight: bold; color: #333; margin-bottom: 6px; letter-spacing: 0.3px; }
+.box-content { font-size: 12px; color: #444; line-height: 1.6; }
+.connector { text-align: center; font-size: 20px; color: #888; line-height: 1; padding: 4px 0; }
+.math-line { font-size: 13px; margin: 4px 0; }
+.tag { display: inline-block; font-size: 10px; font-weight: bold; padding: 1px 6px; border-radius: 3px; margin-right: 6px; color: white; vertical-align: middle; }
+.tag.blue { background: #4285f4; }
+.tag.orange { background: #f9ab00; }
+.tag.red { background: #ea4335; }
+.tag.green { background: #34a853; }
+.tag.gray { background: #999; }
+.loop-label { font-size: 16px; font-weight: bold; color: #222; margin-bottom: 12px; align-self: center; letter-spacing: 0.5px; }
+.loop-svg { width: 100%; overflow: visible; }
+</style>
+</head>
+<body>
+
+<div class="title">EM Algorithm — Full Iteration</div>
+
+<div class="flow">
+
+<div class="box init">
+  <div class="box-title"><span class="tag gray">INIT</span> Initialization (once)</div>
+  <div class="box-content">
+    Fit standard GMM to $\{x_i\}$ (geometry only) → initial $\pi_k, c_k, \Sigma_k$<br>
+    Fit initial $L_k$ per cluster from hard GMM labels<br>
+    Calibrate $\sigma_k^2$ from within-cluster residuals
+  </div>
+</div>
+
+<div class="connector">↓</div>
+
+<div class="loop-label">⟳ repeat until ELBO converges</div>
+
+<div class="box estep" id="estep-box">
+  <div class="box-title"><span class="tag blue">E-STEP</span> Compute responsibilities (fix all params, update $r$)</div>
+  <div class="box-content">
+    <div class="math-line">$\log r_{ik} \propto \log \pi_k + \log\mathcal{N}(x_i;\, c_k, \Sigma_k) + \log\mathcal{N}(\varepsilon_k(x_i);\, 0,\, \sigma_k^2 I)$</div>
+    <div class="math-line">where $\varepsilon_k(x_i) = f(x_i) - L_k(x_i)$ using <em>frozen</em> $L_k$ from last M-step</div>
+    Normalize: $r_{ik} = \exp(\log r_{ik}) \;/\; \sum_j \exp(\log r_{ij})$
+  </div>
+</div>
+
+<div class="connector">↓</div>
+
+<div class="box prune">
+  <div class="box-title"><span class="tag red">PRUNE</span> Remove dead clusters</div>
+  <div class="box-content">
+    If $R_k = \sum_i r_{ik} < 1$, remove cluster $k$ (Dirichlet prior drives $\pi_k \to 0$)
+  </div>
+</div>
+
+<div class="connector">↓</div>
+
+<div class="box mstep">
+  <div class="box-title"><span class="tag orange">M-STEP</span> Update all parameters (fix $r$, optimize $\theta$)</div>
+  <div class="box-content">
+    <div class="math-line"><b>Local model:</b> $L_k \leftarrow \text{weighted fit from } \{(x_i, f_i)\}$ with weights $r_{ik}$</div>
+    <div class="math-line"><b>Center:</b> $c_k \leftarrow \sum_i r_{ik}\, x_i \;/\; R_k$ &nbsp;(+ prior + residual gradient)</div>
+    <div class="math-line"><b>Covariance:</b> $\Sigma_k \leftarrow \sum_i r_{ik}\,(x_i - c_k)(x_i - c_k)^\top \;/\; (\nu_0 + R_k + d + 1)$</div>
+    <div class="math-line"><b>Residual scale:</b> $\sigma_k^2 \leftarrow \sum_i r_{ik}\,\|\varepsilon_k(x_i)\|^2 \;/\; (d \cdot R_k)$</div>
+    <div class="math-line"><b>Weights:</b> $\pi_k \leftarrow (R_k + \alpha_0 - 1) \;/\; (P + N(\alpha_0 - 1))$&ensp; <span style="font-size:10px;color:#888;">($P$ = total points, $N$ = num clusters, $\alpha_0$ = Dirichlet prior; $<1$ promotes pruning)</span></div>
+  </div>
+</div>
+
+<div class="connector">↓</div>
+
+<div class="box check" id="check-box">
+  <div class="box-title"><span class="tag green">CHECK</span> Convergence</div>
+  <div class="box-content">
+    $\text{ELBO} = \underbrace{\displaystyle\sum_{i,k} r_{ik}\bigl[\log \pi_k + \log\mathcal{N}(x_i;\, c_k, \Sigma_k) + \log\mathcal{N}(\varepsilon_k;\, 0,\, \sigma_k^2 I)\bigr]}_{\text{expected log-likelihood}}$
+    <div style="margin-top: 8px; padding-left: 48px;">$\underbrace{- \displaystyle\sum_{i,k} r_{ik}\log r_{ik}}_{\text{entropy}} \;+\; \underbrace{\log p(\pi \mid \alpha_0) + \displaystyle\sum_k \log p(c_k, \Sigma_k \mid \text{NIW})}_{\text{priors (Dirichlet + NIW)}}$</div>
+    <div style="margin-top:6px;">If $|\text{ELBO}^{(t)} - \text{ELBO}^{(t-1)}| < \text{tol}$, stop. Otherwise → back to E-step.</div>
+  </div>
+</div>
+
+</div><!-- end flow -->
+
+<!-- SVG overlay for the curved return arrow -->
+<svg class="loop-svg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></svg>
+
+<script>
+// Draw curved arrow from CHECK box right side back up to E-STEP box right side
+function drawReturnArrow() {
+  const estep = document.getElementById('estep-box');
+  const check = document.getElementById('check-box');
+  const svg = document.querySelector('.loop-svg');
+
+  if (!estep || !check || !svg) return;
+
+  const eRect = estep.getBoundingClientRect();
+  const cRect = check.getBoundingClientRect();
+
+  // Arrow starts from right side of CHECK, curves right and up, ends at right side of E-STEP
+  const startX = cRect.right + 8;
+  const startY = cRect.top + cRect.height / 2;
+  const endX = eRect.right + 8;
+  const endY = eRect.top + eRect.height / 2;
+  const bulge = 36; // how far right the curve goes
+
+  // Scroll offset
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+
+  const sx = startX + scrollX;
+  const sy = startY + scrollY;
+  const ex = endX + scrollX;
+  const ey = endY + scrollY;
+  const cx = Math.max(sx, ex) + bulge;
+
+  svg.setAttribute('style', 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;');
+  svg.innerHTML = `
+    <defs>
+      <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="4" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#555"/>
+      </marker>
+    </defs>
+    <path d="M ${sx} ${sy} C ${cx} ${sy}, ${cx} ${ey}, ${ex} ${ey}"
+          fill="none" stroke="#555" stroke-width="2"
+          marker-end="url(#arrowhead)"/>
+  `;
+}
+
+// Run after layout settles
+window.addEventListener('load', () => setTimeout(drawReturnArrow, 500));
+window.addEventListener('resize', drawReturnArrow);
+</script>
+
+</body>
+</html>

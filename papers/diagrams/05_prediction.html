@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prediction Pipeline</title>
+<script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: white; font-family: 'Times New Roman', Times, serif; padding: 32px; max-width: 720px; margin: 0 auto; }
+.title { text-align: center; font-size: 13px; font-weight: bold; color: #333; margin-bottom: 24px; letter-spacing: 0.5px; text-transform: uppercase; }
+.pipeline { display: flex; align-items: stretch; gap: 0; justify-content: center; }
+.pipe-box { border: 2px solid #333; border-radius: 6px; padding: 12px 14px; text-align: center; min-width: 130px; max-width: 200px; display: flex; flex-direction: column; justify-content: center; overflow-wrap: break-word; }
+.pipe-box.input { background: #e8f0fe; border-color: #4285f4; }
+.pipe-box.assign { background: #fef7e0; border-color: #f9ab00; }
+.pipe-box.predict { background: #e8f5e9; border-color: #34a853; }
+.pipe-box.output { background: #fce8e8; border-color: #ea4335; }
+.pipe-label { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
+.pipe-box.input .pipe-label { color: #4285f4; }
+.pipe-box.assign .pipe-label { color: #f9ab00; }
+.pipe-box.predict .pipe-label { color: #34a853; }
+.pipe-box.output .pipe-label { color: #ea4335; }
+.pipe-eq { font-size: 12.5px; color: #222; margin: 4px 0; }
+.pipe-arrow { display: flex; align-items: center; font-size: 22px; color: #888; padding: 0 6px; }
+.note-section { margin-top: 20px; }
+.note-title { font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.3px; }
+.note-item { font-size: 11.5px; color: #444; line-height: 1.6; margin: 4px 0; padding-left: 12px; border-left: 3px solid #ddd; }
+.note-item b { color: #222; }
+.comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+.comp-box { border: 1px solid #ddd; border-radius: 4px; padding: 10px 12px; font-size: 11px; }
+.comp-box.gmm { border-left: 4px solid #999; }
+.comp-box.ours { border-left: 4px solid #333; }
+.comp-title { font-weight: bold; font-size: 11px; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<div class="title">Test-Time Prediction (after EM convergence)</div>
+
+<div class="pipeline">
+  <div class="pipe-box input">
+    <div class="pipe-label">Input</div>
+    <div class="pipe-eq">$x_t$</div>
+    <div style="font-size: 10px; color: #666;">query state</div>
+  </div>
+  <div class="pipe-arrow">→</div>
+  <div class="pipe-box assign">
+    <div class="pipe-label">Assign cluster</div>
+    <div class="pipe-eq" style="font-size: 11px;">$k^* = \underset{k}{\arg\max}\; \pi_k \!\cdot\! \mathcal{N}(x_t;\, c_k, \Sigma_k)$</div>
+    <div style="font-size: 10px; color: #666;">proximity only (no $f$ available)</div>
+  </div>
+  <div class="pipe-arrow">→</div>
+  <div class="pipe-box predict">
+    <div class="pipe-label">Apply $L_{k^*}$</div>
+    <div class="pipe-eq">$\hat{x}_{t+1} = L_{k^*}(x_t)$</div>
+    <div style="font-size: 10px; color: #666;">local model prediction</div>
+  </div>
+  <div class="pipe-arrow">→</div>
+  <div class="pipe-box output">
+    <div class="pipe-label">Output</div>
+    <div class="pipe-eq">$\hat{x}_{t+1}$</div>
+    <div style="font-size: 10px; color: #666;">predicted next state</div>
+  </div>
+</div>
+
+<div class="note-section">
+  <div class="note-title">Key design choice: proximity-only assignment at test time</div>
+  <div class="note-item">
+    <b>Training:</b> $r_{ik}$ uses both proximity AND residual (we know $f(x_i)$)
+  </div>
+  <div class="note-item">
+    <b>Test time:</b> $k^*$ uses proximity only (we don't know $f(x_t)$ — that's what we're predicting)
+  </div>
+  <div class="note-item">
+    This is a mild <b>distribution shift</b> between train and test cluster assignment.
+    It works because the EM-trained clusters already align with dynamics quality:
+    regions where $L_k$ fits well are also the regions where the proximity factor places points.
+  </div>
+</div>
+
+<div class="comparison">
+  <div class="comp-box gmm">
+    <div class="comp-title">Standard GMM (no dynamics)</div>
+    Assign $k^*$ by proximity → apply global $f$ model<br>
+    Cluster boundaries follow <em>density contours</em>
+  </div>
+  <div class="comp-box ours">
+    <div class="comp-title">Our method (CWM)</div>
+    Assign $k^*$ by proximity → apply <em>local</em> $L_{k^*}$<br>
+    Cluster boundaries follow <em>linearizability contours</em>
+  </div>
+</div>
+
+</body>
+</html>
