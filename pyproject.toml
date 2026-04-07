@@ -34,5 +34,6 @@ dev = [
 
 [tool.setuptools]
 packages = ["residual_aware_clustering", "residual_aware_clustering.models",
+            "residual_aware_clustering.models.experimental",
             "residual_aware_clustering.simulators", "residual_aware_clustering.utils"]
 package-dir = {"residual_aware_clustering" = "."}
