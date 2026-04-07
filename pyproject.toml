@@ -32,5 +32,7 @@ dev = [
     "pytest",
 ]
 
-[tool.setuptools.packages.find]
-include = ["models*", "simulators*", "utils*"]
+[tool.setuptools]
+packages = ["residual_aware_clustering", "residual_aware_clustering.models",
+            "residual_aware_clustering.simulators", "residual_aware_clustering.utils"]
+package-dir = {"residual_aware_clustering" = "."}

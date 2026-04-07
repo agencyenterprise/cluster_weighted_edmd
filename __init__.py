@@ -112,6 +112,28 @@ def make_hp(X, d, alpha0=0.5, kappa0=1.0, psi0_scale=10.0, nu0=None, lambda0_sca
     }
 
 
+def make_hp_gpu(X, d, alpha0=0.5, kappa0=1.0, psi0_scale=10.0, nu0=None, lambda0_scale=0.01):
+    """Device/dtype-aware make_hp. Propagates device and dtype from X (works on CPU, CUDA, MPS)."""
+    if nu0 is None:
+        nu0 = float(d + 2)
+    return {
+        'alpha0': alpha0,
+        'mu0': X.mean(dim=0),
+        'Lambda0': lambda0_scale * torch.eye(d, dtype=X.dtype, device=X.device),
+        'kappa0': kappa0,
+        'Psi0': psi0_scale * torch.eye(d, dtype=X.dtype, device=X.device),
+        'nu0': nu0,
+        'sigma2': 'auto',
+    }
+
+
+from .models.em_local_edmd_discrete_gpu import (
+    fit as fit_local_edmd_discrete_gpu,
+    fit_global as fit_global_edmd_discrete_gpu,
+    predict_next_global as predict_global_edmd_discrete_gpu,
+)
+
+
 __version__ = "0.1.0"
 
 __all__ = [
@@ -121,9 +143,13 @@ __all__ = [
     "fit_local_edmd_discrete",
     "fit_global_edmd_discrete",
     "predict_global_edmd_discrete",
+    "fit_local_edmd_discrete_gpu",
+    "fit_global_edmd_discrete_gpu",
+    "predict_global_edmd_discrete_gpu",
     "mvn_logpdf_batch",
     "residual_logpdf_batch",
     "compute_elbo",
     "total_log_marginal",
     "make_hp",
+    "make_hp_gpu",
 ]
