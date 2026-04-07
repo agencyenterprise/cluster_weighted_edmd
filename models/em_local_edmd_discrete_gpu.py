@@ -19,6 +19,20 @@ from .em_local_edmd import monomial_exponents, monomials
 # Discrete EDMD fit
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _lstsq_svd(A, B, rcond=1e-10):
+    """SVD-based least squares: solves A @ X = B via truncated pseudoinverse.
+
+    Equivalent to gelsd: uses SVD, thresholds small singular values.
+    Works reliably on CPU, CUDA, and MPS.
+    """
+    U, S, Vh = torch.linalg.svd(A, full_matrices=False)
+    # Threshold: ignore singular values below rcond * max(S)
+    cutoff = rcond * S[0]
+    S_inv = torch.where(S > cutoff, 1.0 / S, torch.zeros_like(S))
+    # pseudoinverse solution: V @ diag(1/s) @ U^T @ B
+    return Vh.T @ (S_inv.unsqueeze(1) * (U.T @ B))
+
+
 def weighted_discrete_edmd(X, X_next, r_k, c_k, exps):
     U_curr = X - c_k
     U_next = X_next - c_k
@@ -29,8 +43,7 @@ def weighted_discrete_edmd(X, X_next, r_k, c_k, exps):
     A = Phi_curr * sqrt_w
     B = Phi_next * sqrt_w
 
-    result = torch.linalg.lstsq(A, B, driver='gelsd')
-    return result.solution.T
+    return _lstsq_svd(A, B).T
 
 
 # ─────────────────────────────────────────────────────────────────────────────
