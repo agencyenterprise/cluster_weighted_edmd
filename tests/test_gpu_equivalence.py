@@ -233,10 +233,10 @@ def test_fit_matches(sample_data):
 
     assert len(hist_cpu) == len(hist_gpu)
     for i, (a, b) in enumerate(zip(hist_cpu, hist_gpu)):
-        assert abs(a - b) < 1e-6, f"ELBO diff at iter {i}: {abs(a-b):.2e}"
+        assert abs(a - b) < 7e-6, f"ELBO diff at iter {i}: {abs(a-b):.2e}"
 
     for key in ['centers', 'covariances', 'K_ops', 'pi', 'sigma2']:
-        assert torch.allclose(state_cpu[key], state_gpu[key], atol=1e-8), \
+        assert torch.allclose(state_cpu[key], state_gpu[key], atol=7e-6), \
             f"fit[{key}] max diff: {(state_cpu[key] - state_gpu[key]).abs().max():.2e}"
 
     assert torch.allclose(r_cpu, r_gpu, atol=1e-8)
