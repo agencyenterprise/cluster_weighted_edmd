@@ -224,11 +224,28 @@ def initialize(X, X_next, N, hp, degree=2, seed=42):
     gmm.fit(X_np)
     labels = gmm.predict(X_np)
 
+    # sklearn may find fewer clusters than requested (duplicate points in low-d)
+    n_found = len(set(labels))
+    if n_found < N:
+        print(f"    GMM found {n_found} clusters (requested {N}), reducing N")
+        N = n_found
+        # Re-index labels to be contiguous 0..N-1
+        unique_labels = sorted(set(labels))
+        label_map = {old: new for new, old in enumerate(unique_labels)}
+        labels = np.array([label_map[l] for l in labels])
+        # Keep only the active GMM components
+        active = [unique_labels[i] for i in range(N)]
+        gmm.means_ = gmm.means_[active]
+        gmm.covariances_ = gmm.covariances_[active]
+        gmm.weights_ = gmm.weights_[active]
+        gmm.weights_ /= gmm.weights_.sum()
+
     centers     = torch.tensor(gmm.means_,       dtype=dt, device=dev)
     covariances = torch.tensor(gmm.covariances_, dtype=dt, device=dev) \
                   + 1e-6 * torch.eye(d, dtype=dt, device=dev).unsqueeze(0)
     pi          = torch.tensor(gmm.weights_,     dtype=dt, device=dev)
 
+    Mdim = len(exps)
     K_ops = torch.zeros(N, Mdim, Mdim, dtype=dt, device=dev)
     for k in range(N):
         mask = torch.tensor(labels == k, device=dev)
