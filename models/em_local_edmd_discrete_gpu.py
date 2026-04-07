@@ -110,13 +110,16 @@ def m_step(X, X_next, r, state, hp):
         r_k = r[:, k]
         R_k = R[k].item()
 
-        hat_Lambda = Lambda0 + R_k * Sigma_inv[k]
-        hat_Lambda = hat_Lambda + 1e-6 * eye_d  # regularize for near-singular cases
+        hat_Lambda = Lambda0 + R_k * Sigma_inv[k] + 1e-6 * eye_d
         rhs        = Lambda0 @ mu0 + Sigma_inv[k] @ (r_k @ X)
         c_k_new    = torch.linalg.solve(hat_Lambda, rhs)
         centers_new[k] = c_k_new
 
-        K_ops_new[k] = weighted_discrete_edmd(X, X_next, r_k, c_k_new, exps)
+        K_k = weighted_discrete_edmd(X, X_next, r_k, c_k_new, exps)
+        if torch.isnan(K_k).any():
+            K_ops_new[k] = state['K_ops'][k]  # keep previous
+        else:
+            K_ops_new[k] = K_k
 
         diff    = X - c_k_new
         scatter = (r_k.unsqueeze(1) * diff).T @ diff
@@ -253,7 +256,11 @@ def initialize(X, X_next, N, hp, degree=2, seed=42):
         if r_k.sum() < Mdim:
             K_ops[k] = torch.eye(Mdim, dtype=dt, device=dev)
         else:
-            K_ops[k] = weighted_discrete_edmd(X, X_next, r_k, centers[k], exps)
+            K_k = weighted_discrete_edmd(X, X_next, r_k, centers[k], exps)
+            if torch.isnan(K_k).any():
+                K_ops[k] = torch.eye(Mdim, dtype=dt, device=dev)
+            else:
+                K_ops[k] = K_k
 
     # Calibrate sigma2
     if hp.get('sigma2', 'auto') == 'auto':
@@ -265,7 +272,8 @@ def initialize(X, X_next, N, hp, degree=2, seed=42):
                 continue
             eps_k = X_next[mask] - X_pred[mask, k]
             sq = (eps_k ** 2).sum(dim=1)
-            sigma2[k] = max(sq.median().item() / d, 1e-6)
+            med = sq.median().item()
+            sigma2[k] = max(med / d, 1e-6) if not np.isnan(med) else 1e-6
         print(f"    sigma2 calibrated per cluster: mean={sigma2.mean().item():.6f}, "
               f"range=[{sigma2.min().item():.6f}, {sigma2.max().item():.6f}]")
         learn_sigma2 = True
