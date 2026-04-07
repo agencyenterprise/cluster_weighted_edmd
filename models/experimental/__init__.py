@@ -14,6 +14,7 @@ from .local_model import LocalModel
 from .polynomial_discrete import PolynomialDiscreteEDMD
 from .polynomial_continuous import PolynomialContinuousEDMD
 from .neural_net import NeuralNetModel
+from .transformer_net import TransformerNetModel
 from . import generic_em
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "PolynomialDiscreteEDMD",
     "PolynomialContinuousEDMD",
     "NeuralNetModel",
+    "TransformerNetModel",
     "generic_em",
 ]
