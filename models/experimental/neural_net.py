@@ -23,12 +23,14 @@ class NeuralNetModel:
         hidden_dims: tuple[int, ...] = (64, 64),
         lr: float = 1e-3,
         n_epochs: int = 50,
+        patience: int = 10,
         predict_offset: bool = True,
         min_samples: int = 10,
     ):
         self.hidden_dims = hidden_dims
         self.lr = lr
         self.n_epochs = n_epochs
+        self.patience = patience
         self.predict_offset = predict_offset
         self.min_samples = min_samples
         self._net: nn.Module | None = None
@@ -70,6 +72,10 @@ class NeuralNetModel:
         self._net = self._build_net(d).to(U.device)
         optimizer = torch.optim.Adam(self._net.parameters(), lr=self.lr)
 
+        best_loss = float("inf")
+        best_state = None
+        no_improve = 0
+
         self._net.train()
         for _ in range(self.n_epochs):
             pred = self._net(U)
@@ -79,7 +85,19 @@ class NeuralNetModel:
             loss.backward()
             optimizer.step()
 
-        # Move back to original dtype
+            loss_val = loss.item()
+            if loss_val < best_loss:
+                best_loss = loss_val
+                best_state = {k: v.clone() for k, v in self._net.state_dict().items()}
+                no_improve = 0
+            else:
+                no_improve += 1
+                if no_improve >= self.patience:
+                    break
+
+        if best_state is not None:
+            self._net.load_state_dict(best_state)
+
         self._net = self._net.to(dtype=dt)
 
     def predict(self, X: torch.Tensor, center: torch.Tensor) -> torch.Tensor:
@@ -112,6 +130,7 @@ class NeuralNetModel:
             hidden_dims=self.hidden_dims,
             lr=self.lr,
             n_epochs=self.n_epochs,
+            patience=self.patience,
             predict_offset=self.predict_offset,
             min_samples=self.min_samples,
         )
