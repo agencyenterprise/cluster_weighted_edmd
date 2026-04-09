@@ -1,3 +1,50 @@
+"""
+Evidence Lower Bound (ELBO) for the residual-aware EM pipeline.
+
+Computes the variational objective that the EM algorithm maximizes at
+every iteration.  The ELBO decomposes into six additive terms:
+
+1. **Assignment** -- expected log mixing weights under q(Z).
+2. **Proximity** -- expected log N(x_i; c_k, Sigma_k).
+3. **Residual** (novel) -- expected log N(eps_k(x_i); 0, sigma2 I),
+   penalizing linearization error.
+4. **Entropy** -- H[q], the entropy of the soft assignments.
+5. **Dirichlet prior** -- log p(pi | alpha0).
+6. **NIW prior** -- sum_k log p(c_k, Sigma_k | mu0, kappa0, Psi0, nu0).
+
+The ELBO must be monotonically non-decreasing across EM iterations;
+any decrease indicates an M-step bug.
+
+Functions
+---------
+- ``compute_elbo(X, F, r, state, hp)`` -- evaluate the full ELBO
+  (scalar tensor).
+- ``check_monotone(history, tol=1.0)`` -- verify monotonicity of an
+  ELBO trace, allowing a small tolerance for numerical noise.
+
+Usage
+-----
+::
+
+    from residual_aware_clustering.models.elbo import compute_elbo, check_monotone
+
+    elbo = compute_elbo(X, F, r, state, hp)  # scalar tensor
+
+    # After EM loop
+    ok = check_monotone(elbo_history)
+    if not ok:
+        print("WARNING: ELBO decreased -- check M-step")
+
+Key concepts
+------------
+- **Term 3 is novel**: standard GMM ELBOs have only terms 1, 2, 4-6.
+  The residual log-likelihood (term 3) is the Cluster-Weighted Model
+  regression component that drives centers toward regions of low
+  linearization error.
+- **Tolerance in check_monotone**: violations below 1.0 nat are treated
+  as numerical artifacts from the NIW log-density, not algorithmic bugs.
+"""
+
 import torch
 from .distributions import (
     mvn_logpdf_batch,

@@ -1,3 +1,64 @@
+"""
+Probability distributions for the residual-aware EM pipeline (CPU).
+
+Provides the log-density functions used in E-step responsibility computation
+and ELBO evaluation. All functions operate on float64 CPU tensors.
+
+Functions
+---------
+``mvn_logpdf_batch(X, centers, covariances)``
+    Batched multivariate normal log-pdf: log N(x_i; c_k, Sigma_k) for all
+    data points i and clusters k. Used as the *proximity* term in the E-step.
+
+``residual_logpdf_batch(X, F, centers, f_centers, jacobians, sigma2)``
+    Residual (Taylor remainder) log-pdf: log N(eps_k(x_i); 0, sigma2_k I)
+    where eps_k = f(x) - f(c_k) - J(c_k)(x - c_k). This is the *novel*
+    residual-aware likelihood factor that distinguishes this EM from standard
+    Gaussian mixture models.
+
+``dirichlet_logpdf(pi, alpha0)``
+    Log-density of the Dirichlet prior on mixing weights pi.
+
+``niw_logpdf(c, Sigma, mu0, kappa0, Psi0, nu0)``
+    Log-density of the Normal-Inverse-Wishart prior on (center, covariance).
+
+Usage
+-----
+These functions are called internally by E-step and ELBO routines in
+``em.py``, ``em_local_edmd.py``, and ``em_local_edmd_discrete.py``.
+Direct usage is rarely needed, but for reference::
+
+    from residual_aware_clustering.models.distributions import (
+        mvn_logpdf_batch, residual_logpdf_batch,
+        dirichlet_logpdf, niw_logpdf,
+    )
+
+    # Proximity log-likelihoods: (P, N) matrix
+    log_prox = mvn_logpdf_batch(X, centers, covariances)
+
+    # Residual log-likelihoods: (P, N) matrix
+    log_resid = residual_logpdf_batch(
+        X, F, centers, f_centers, jacobians, sigma2,
+    )
+
+    # Combined E-step (unnormalized log-responsibilities)
+    log_r = torch.log(pi) + log_prox + log_resid
+
+Key concepts
+------------
+- **Proximity term**: standard Gaussian cluster likelihood, encouraging
+  points near c_k to belong to cluster k.
+- **Residual term**: penalizes points where the local model (Taylor or EDMD)
+  is a poor fit, pushing them toward clusters with better approximations.
+  This is what makes the clustering "residual-aware".
+- **Conjugate priors**: Dirichlet on pi and NIW on (c_k, Sigma_k) yield
+  closed-form MAP updates in the M-step and appear as additive terms in
+  the ELBO.
+
+Also includes self-contained test functions (run as ``python -m
+residual_aware_clustering.models.distributions``).
+"""
+
 import torch
 from torch.distributions import MultivariateNormal, Dirichlet
 

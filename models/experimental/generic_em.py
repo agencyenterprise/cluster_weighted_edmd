@@ -1,9 +1,91 @@
 """
 Generic EM pipeline for residual-aware clustering with any LocalModel.
 
-Single implementation that works with polynomial EDMD, neural networks,
-or any model satisfying the LocalModel protocol. Device/dtype aware
-(CPU, CUDA, MPS).
+This is the main entry point for fitting cluster-weighted models with
+arbitrary local surrogates. It accepts ANY object satisfying the
+``LocalModel`` protocol -- polynomial EDMD, neural networks, transformers,
+or custom implementations -- and runs the full Bayesian EM loop:
+initialization (GMM warm-start), E-step (soft assignment), M-step
+(center/covariance/model refit), ELBO tracking, dead-cluster pruning,
+and multi-restart selection. Device/dtype aware (CPU, CUDA, MPS; EM
+always runs in float64, with automatic device migration).
+
+Usage
+-----
+Fit with polynomial EDMD::
+
+    from residual_aware_clustering.models.experimental import (
+        generic_em, PolynomialDiscreteEDMD, ObservableType,
+    )
+
+    prototype = PolynomialDiscreteEDMD(degree=2, observable_type=ObservableType.FULL)
+    state, r, history = generic_em.fit(
+        X, X_next,          # (P, d) input/target pairs
+        N=8,                # initial number of clusters
+        hp=hp,              # hyperparameters dict (alpha0, mu0, Lambda0, Psi0, nu0, ...)
+        model_prototype=prototype,
+        n_iter=100,
+        n_restarts=3,
+    )
+
+    # state['centers']      — (N_final, d) cluster centers
+    # state['models']       — list of N_final fitted LocalModel instances
+    # state['pi']           — (N_final,) mixing weights
+    # state['covariances']  — (N_final, d, d) proximity covariances
+    # state['sigma2']       — (N_final,) per-cluster residual variances
+    # r                     — (P, N_final) soft assignment matrix
+    # history               — list of ELBO values per iteration
+
+Fit with a neural network model::
+
+    from residual_aware_clustering.models.experimental import generic_em, NeuralNetModel
+
+    prototype = NeuralNetModel(hidden_dims=(128, 128), n_epochs=80)
+    state, r, history = generic_em.fit(X, X_next, N=5, hp=hp, model_prototype=prototype)
+
+Fit with a transformer model::
+
+    from residual_aware_clustering.models.experimental import generic_em, TransformerNetModel
+
+    prototype = TransformerNetModel(d_model=64, n_heads=4, n_layers=2)
+    state, r, history = generic_em.fit(X, X_next, N=5, hp=hp, model_prototype=prototype)
+
+Key concepts
+------------
+- **model_prototype**: A single unfitted ``LocalModel`` instance. The pipeline
+  calls ``clone()`` on it N times to create one independent model per cluster.
+- **Hyperparameters (hp)**: Dict with Bayesian prior parameters: ``alpha0``
+  (Dirichlet concentration), ``mu0`` / ``Lambda0`` (prior mean / precision for
+  centers), ``Psi0`` / ``nu0`` / ``kappa0`` (NIW prior on covariances), and
+  optionally ``sigma2`` (set to ``'auto'`` for per-cluster calibration).
+- **Multi-restart**: Runs ``n_restarts`` independent EM chains and returns the
+  result with the highest ELBO, reducing sensitivity to initialization.
+- **Dead-cluster pruning**: Clusters with effective weight below a threshold
+  are automatically removed during EM, so the final N may be smaller than the
+  initial N.
+- **Device handling**: EM internally runs on CPU in float64 (MPS does not
+  support float64). Results are automatically moved back to the original
+  device/dtype after fitting.
+
+Pipeline functions
+------------------
+``fit(X, Y, N, hp, model_prototype, ...)``
+    Full EM with multi-restart. Returns ``(state, r, history)``.
+
+``initialize(X, Y, N, hp, model_prototype, ...)``
+    GMM warm-start + initial model fitting. Returns the initial state dict.
+
+``e_step(X, Y, state, hp)``
+    Compute soft assignments. Returns (P, N) responsibility matrix.
+
+``m_step(X, Y, r, state, hp)``
+    Update centers, covariances, models, mixing weights, and sigma2.
+
+``compute_elbo(X, Y, r, state, hp)``
+    Evaluate the evidence lower bound (ELBO).
+
+``prune_dead(state, r, X, Y, hp, ...)``
+    Remove clusters with negligible effective weight.
 """
 
 import time
@@ -50,6 +132,25 @@ def residual_logpdf(X, Y, centers, models, sigma2, d):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def e_step(X, Y, state, hp):
+    """Compute soft assignments (responsibilities) for all points and clusters.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        Input states, shape ``(P, d)``.
+    Y : torch.Tensor
+        Target states, shape ``(P, d)``.
+    state : dict
+        Current EM state containing ``centers``, ``covariances``, ``models``,
+        ``sigma2``, ``pi``, and ``d``.
+    hp : dict
+        Hyperparameters (unused directly, kept for API consistency).
+
+    Returns
+    -------
+    torch.Tensor
+        Responsibility matrix of shape ``(P, N)`` where each row sums to 1.
+    """
     log_prox = mvn_logpdf_batch(X, state['centers'], state['covariances'])
     log_resid = residual_logpdf(
         X, Y, state['centers'], state['models'], state['sigma2'], state['d'])
@@ -64,6 +165,32 @@ def e_step(X, Y, state, hp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def m_step(X, Y, r, state, hp):
+    """Update cluster parameters given current responsibilities.
+
+    Updates centers (MAP with NIW prior), refits each local model,
+    recomputes proximity covariances, mixing weights, and per-cluster
+    residual variances.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        Input states, shape ``(P, d)``.
+    Y : torch.Tensor
+        Target states, shape ``(P, d)``.
+    r : torch.Tensor
+        Responsibility matrix, shape ``(P, N)``.
+    state : dict
+        Current EM state dict.
+    hp : dict
+        Hyperparameters with keys ``alpha0``, ``mu0``, ``Lambda0``,
+        ``Psi0``, ``nu0``.
+
+    Returns
+    -------
+    dict
+        Updated state dict with keys ``pi``, ``centers``, ``covariances``,
+        ``models``, ``sigma2``, ``learn_sigma2``, ``N``, ``d``, ``P``.
+    """
     N, d, P = state['N'], state['d'], state['P']
     dev = X.device
     dt = X.dtype
@@ -131,6 +258,31 @@ def m_step(X, Y, r, state, hp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def compute_elbo(X, Y, r, state, hp):
+    """Evaluate the evidence lower bound (ELBO) of the current model.
+
+    Combines expected log-likelihood terms (mixing weights, proximity,
+    residual), the entropy of responsibilities, and Bayesian prior terms
+    (Dirichlet on pi, NIW on centers/covariances).
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        Input states, shape ``(P, d)``.
+    Y : torch.Tensor
+        Target states, shape ``(P, d)``.
+    r : torch.Tensor
+        Responsibility matrix, shape ``(P, N)``.
+    state : dict
+        Current EM state dict.
+    hp : dict
+        Hyperparameters with keys ``alpha0``, ``mu0``, ``kappa0``,
+        ``Psi0``, ``nu0``.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar ELBO value (in nats).
+    """
     N = state['N']
 
     log_pi = torch.log(state['pi'])
@@ -158,6 +310,34 @@ def compute_elbo(X, Y, r, state, hp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def prune_dead(state, r, X, Y, hp, threshold=1.0, min_N=2):
+    """Remove clusters whose effective weight falls below a threshold.
+
+    After removal, responsibilities are recomputed via ``e_step``.
+
+    Parameters
+    ----------
+    state : dict
+        Current EM state dict.
+    r : torch.Tensor
+        Responsibility matrix, shape ``(P, N)``.
+    X : torch.Tensor
+        Input states, shape ``(P, d)``.
+    Y : torch.Tensor
+        Target states, shape ``(P, d)``.
+    hp : dict
+        Hyperparameters (forwarded to ``e_step``).
+    threshold : float, optional
+        Minimum effective cluster weight ``R_k`` to keep, by default 1.0.
+    min_N : int, optional
+        Minimum number of clusters to retain, by default 2.
+
+    Returns
+    -------
+    state : dict
+        Updated state with dead clusters removed.
+    r : torch.Tensor
+        Recomputed responsibility matrix, shape ``(P, N_new)``.
+    """
     R = r.sum(dim=0)
     dead = (R < threshold).nonzero(as_tuple=True)[0].tolist()
     if not dead:
@@ -185,6 +365,38 @@ def prune_dead(state, r, X, Y, hp, threshold=1.0, min_N=2):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def initialize(X, Y, N, hp, model_prototype, seed=42, max_gmm_samples=10000):
+    """Create the initial EM state via GMM warm-start and local model fitting.
+
+    Fits a scikit-learn ``GaussianMixture`` to ``X`` to obtain initial
+    centers, covariances, and mixing weights, then clones the model
+    prototype N times and fits each clone on its assigned cluster.
+    Optionally calibrates per-cluster residual variances.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        Input states, shape ``(P, d)``.
+    Y : torch.Tensor
+        Target states, shape ``(P, d)``.
+    N : int
+        Requested number of clusters (may be reduced if GMM finds fewer).
+    hp : dict
+        Hyperparameters. If ``hp['sigma2']`` is ``'auto'``, per-cluster
+        residual variances are calibrated from median squared residuals.
+    model_prototype : LocalModel
+        Unfitted model instance; ``clone()`` is called N times.
+    seed : int, optional
+        Random seed for GMM and subsampling, by default 42.
+    max_gmm_samples : int or None, optional
+        Maximum number of points for GMM fitting. If ``None`` or the
+        dataset is smaller, all points are used. By default 10000.
+
+    Returns
+    -------
+    dict
+        Initial state dict with keys ``pi``, ``centers``, ``covariances``,
+        ``models``, ``sigma2``, ``learn_sigma2``, ``N``, ``d``, ``P``.
+    """
     P, d = X.shape
     dev = X.device
     dt = X.dtype
@@ -268,6 +480,23 @@ def initialize(X, Y, N, hp, model_prototype, seed=42, max_gmm_samples=10000):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def check_monotone(history, tol=1.0):
+    """Check whether the ELBO history is monotonically non-decreasing.
+
+    Prints a warning if any iteration shows a decrease larger than
+    ``tol`` nats.
+
+    Parameters
+    ----------
+    history : list of float
+        ELBO values recorded at each EM iteration.
+    tol : float, optional
+        Tolerance for acceptable decrease (in nats), by default 1.0.
+
+    Returns
+    -------
+    bool
+        ``True`` if no violations exceed ``tol``, ``False`` otherwise.
+    """
     if len(history) < 2:
         return True
     violations = [

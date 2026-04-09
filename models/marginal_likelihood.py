@@ -1,3 +1,51 @@
+"""
+Marginal likelihood and BIC for model selection.
+
+Provides closed-form log marginal likelihood by integrating out
+(c_k, Sigma_k) under the Normal-Inverse-Wishart (NIW) conjugate prior,
+plus a residual penalty term that accounts for linearization error.
+Used to compare different cluster counts N and select the best model.
+
+Functions
+---------
+- ``cluster_log_marginal(X_k, F_k, c_k, J_k, f_ck, hp)`` -- exact
+  log marginal for a single cluster (five terms, see docstring).
+- ``total_log_marginal(X, F, r, state, hp)`` -- full log p(X, F | N)
+  summing the Dirichlet-Categorical marginal and all per-cluster terms.
+- ``bic(log_ml, N, P, d)`` -- Bayesian Information Criterion from the
+  log marginal likelihood.  Higher is better.
+
+Usage
+-----
+::
+
+    from residual_aware_clustering.models.marginal_likelihood import (
+        total_log_marginal, bic,
+    )
+
+    log_ml = total_log_marginal(X, F, r, state, hp)
+
+    # Compare cluster counts
+    scores = {}
+    for N in [3, 5, 8, 10]:
+        state_N, r_N, _ = fit_taylor(X, F, f, J, N=N, hp=hp)
+        ml_N = total_log_marginal(X, F, r_N, state_N, hp).item()
+        scores[N] = bic(ml_N, N, P=X.shape[0], d=X.shape[1])
+
+    best_N = max(scores, key=scores.get)
+
+Key concepts
+------------
+- **NIW conjugacy**: the proximity integral has a closed-form solution
+  because the Gaussian likelihood is conjugate to the NIW prior.
+- **Residual penalty** (term 5, novel): a Gaussian penalty on
+  linearization residuals eps_k(x_i) = F_i - [f(c_k) + J_k (x_i - c_k)]
+  that prevents overly large clusters where the linear approximation
+  breaks down.
+- **BIC**: penalizes model complexity with D_N free parameters,
+  where D_N = N * (d*(d+3)/2 + 1) - 1.
+"""
+
 import torch
 from torch.special import gammaln
 from .distributions import _mvlgamma

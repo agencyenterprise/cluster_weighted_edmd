@@ -1,3 +1,45 @@
+"""
+Visualization helpers for paper figures.
+
+Generates publication-quality plots for the residual-aware clustering
+pipeline.  All functions save to disk (Agg backend) and print the
+output path.
+
+Available plots
+---------------
+- ``plot_elbo(history)`` -- ELBO convergence over EM iterations.
+  Highlights any non-monotone steps in red as a diagnostic.
+- ``plot_attractor_clusters(X, r, state)`` -- 3D scatter of the Lorenz
+  attractor colored by cluster assignment, with starred centers.
+- ``plot_comparison(X, r_gmm, state_gmm, r_ours, state_ours)`` --
+  side-by-side 3D view comparing standard GMM vs residual-aware.
+- ``plot_residuals_per_cluster(X, F, r, state)`` -- per-cluster scatter
+  of linearization residual magnitude vs distance from center.
+- ``plot_model_selection(elbo_by_N, bic_by_N, ml_by_N)`` -- ELBO, BIC,
+  and log marginal likelihood as a function of cluster count N.
+- ``plot_responsibilities(r)`` -- heatmap of soft assignment
+  responsibilities (subsampled for readability).
+
+Usage
+-----
+::
+
+    from residual_aware_clustering.utils.viz import plot_elbo, plot_attractor_clusters
+
+    # After fitting
+    plot_elbo(elbo_history, title="Lorenz ELBO", save="lorenz_elbo.png")
+    plot_attractor_clusters(X, r, state, save="lorenz_clusters.png")
+
+Key concepts
+------------
+- **Agg backend**: ``matplotlib.use('Agg')`` is set at import time so
+  plots render headlessly on servers.  All figures are saved, never shown.
+- **COLORS**: a 10-color palette from ``plt.cm.tab10`` reused across all
+  cluster-colored plots for visual consistency.
+- **Tensor inputs**: most functions accept ``torch.Tensor`` and call
+  ``.numpy()`` internally.
+"""
+
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -12,6 +54,19 @@ COLORS = plt.cm.tab10(np.linspace(0, 1, 10))
 # ── ELBO convergence ──────────────────────────────────────────────────────────
 
 def plot_elbo(history: list, title: str = "ELBO Convergence", save: str = None):
+    """Plot ELBO convergence over EM iterations.
+
+    Non-monotone steps are highlighted in red as a diagnostic.
+
+    Parameters
+    ----------
+    history : list[float]
+        ELBO value at each EM iteration.
+    title : str
+        Plot title.
+    save : str or None
+        Output file path. Defaults to ``<title>.png``.
+    """
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(history, color='steelblue', linewidth=2)
 
@@ -43,6 +98,21 @@ def plot_attractor_clusters(
     title: str  = "Lorenz — Linearization Regions",
     save:  str  = None,
 ):
+    """3D scatter plot of an attractor colored by cluster assignment.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        Phase-space points, shape ``(P, 3)``.
+    r : torch.Tensor
+        Soft-assignment responsibilities, shape ``(P, N)``.
+    state : dict
+        EM state containing 'centers' (``(N, 3)`` tensor) and 'N'.
+    title : str
+        Plot title.
+    save : str or None
+        Output file path. Defaults to ``<title>.png``.
+    """
     assignments = r.argmax(dim=1).numpy()
     X_np        = X.numpy()
     centers_np  = state['centers'].numpy()
@@ -87,6 +157,23 @@ def plot_comparison(
     state_ours:     dict,
     save:           str = "comparison.png",
 ):
+    """Side-by-side 3D comparison of standard GMM vs residual-aware clustering.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        Phase-space points, shape ``(P, 3)``.
+    r_gmm : torch.Tensor
+        GMM responsibilities, shape ``(P, N)``.
+    state_gmm : dict
+        GMM EM state with 'centers' and 'N'.
+    r_ours : torch.Tensor
+        Residual-aware responsibilities, shape ``(P, N)``.
+    state_ours : dict
+        Residual-aware EM state with 'centers' and 'N'.
+    save : str
+        Output file path.
+    """
     fig = plt.figure(figsize=(18, 8))
 
     for col, (r, state, title) in enumerate([
@@ -132,6 +219,21 @@ def plot_residuals_per_cluster(
     state: dict,
     save:  str = "residuals_per_cluster.png",
 ):
+    """Per-cluster scatter of linearization residual magnitude vs distance from center.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        Phase-space points, shape ``(P, d)``.
+    F : torch.Tensor
+        Vector-field values, shape ``(P, d)``.
+    r : torch.Tensor
+        Soft-assignment responsibilities, shape ``(P, N)``.
+    state : dict
+        EM state with 'N', 'centers', 'f_centers', 'jacobians'.
+    save : str
+        Output file path.
+    """
     N           = state['N']
     assignments = r.argmax(dim=1).numpy()
 
@@ -178,6 +280,19 @@ def plot_model_selection(
     ml_by_N:    dict,
     save:       str = "model_selection.png",
 ):
+    """Plot ELBO, BIC, and log marginal likelihood as a function of cluster count.
+
+    Parameters
+    ----------
+    elbo_by_N : dict[int, float]
+        ELBO values keyed by number of clusters N.
+    bic_by_N : dict[int, float]
+        BIC values keyed by N.
+    ml_by_N : dict[int, float]
+        Log marginal likelihood values keyed by N.
+    save : str
+        Output file path.
+    """
     Ns    = sorted(elbo_by_N.keys())
     elbos = [elbo_by_N[n] for n in Ns]
     bics  = [bic_by_N[n]  for n in Ns]
@@ -214,6 +329,15 @@ def plot_responsibilities(
     r:    torch.Tensor,
     save: str = "responsibilities.png",
 ):
+    """Heatmap of soft-assignment responsibilities (subsampled for readability).
+
+    Parameters
+    ----------
+    r : torch.Tensor
+        Responsibility matrix, shape ``(P, N)``.
+    save : str
+        Output file path.
+    """
     r_np = r.numpy()
     P, N = r_np.shape
 

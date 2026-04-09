@@ -1,3 +1,84 @@
+"""
+Oracle Taylor-analytic EM -- upper-bound baseline using true dynamics.
+
+This module implements residual-aware clustering where each cluster's local
+approximation is an *exact* first-order Taylor expansion of the true vector
+field f(x) around its center c_k:
+
+    L_k(x) = f(c_k) + J(c_k) . (x - c_k)
+
+Unlike the EDMD-based modules (``em_local_edmd.py``, ``em_local_edmd_discrete.py``),
+this is **not a black-box method** -- it requires analytical (or numerical)
+access to:
+
+- ``f_fn(x)``: the true dynamics f(x) = dx/dt, callable on numpy arrays.
+- ``J_fn(x)``: the true Jacobian J(x) = df/dx, callable on numpy arrays.
+
+Because the local model uses the *exact* f and J evaluated at each cluster
+center, the only source of approximation error is the Taylor truncation
+(second-order and above). This makes the method an **oracle / upper bound**
+for how well piecewise-linear clustering can perform on a given system.
+
+Usage
+-----
+::
+
+    import torch
+    import numpy as np
+    from residual_aware_clustering.models.em import fit
+
+    # True dynamics (known analytically)
+    def f_fn(x):
+        '''Vector field dx/dt = f(x), x is a 1-D numpy array of shape (d,).'''
+        return np.array([x[1], -np.sin(x[0])])
+
+    def J_fn(x):
+        '''Jacobian df/dx, returns (d, d) numpy array.'''
+        return np.array([[0.0, 1.0], [-np.cos(x[0]), 0.0]])
+
+    # Data: state points and vector field evaluations
+    X = torch.tensor(x_data, dtype=torch.float64)   # (P, d)
+    F = torch.tensor(f_data, dtype=torch.float64)   # (P, d)
+
+    d = X.shape[1]
+    hp = {
+        'alpha0':  1.0,
+        'mu0':     torch.zeros(d, dtype=torch.float64),
+        'Lambda0': 0.01 * torch.eye(d, dtype=torch.float64),
+        'kappa0':  0.01,
+        'Psi0':    torch.eye(d, dtype=torch.float64),
+        'nu0':     float(d + 2),
+        'sigma2':  'auto',
+    }
+
+    state, responsibilities, elbos = fit(
+        X, F, f_fn, J_fn, N=5, hp=hp, n_iter=100,
+    )
+
+    # state['centers']    -- (N_active, d) cluster centers
+    # state['f_centers']  -- (N_active, d) f(c_k) at each center
+    # state['jacobians']  -- (N_active, d, d) J(c_k) at each center
+
+Key concepts
+------------
+- **Oracle baseline**: since f and J are exact, the residual
+  eps_k(x) = f(x) - f(c_k) - J(c_k)(x - c_k) is purely the Taylor remainder.
+  No other method in this package can beat this approximation quality.
+- **Piecewise-linear**: the local model is affine in x, so it captures
+  the linear structure of f around each center. Regions of high curvature
+  naturally get more clusters.
+- **E-step residual weighting**: soft assignments r_ik combine proximity
+  (Gaussian distance to c_k) with residual fit (how well L_k predicts f at
+  x_i). This is the core "residual-aware" mechanism shared across all EM
+  variants in this package.
+- **M-step center update**: the new center c_k is the responsibility-weighted
+  mean, where weights already account for residual quality via the E-step.
+  f(c_k) and J(c_k) are re-evaluated at the new center each iteration.
+- **Dead-cluster pruning**: clusters with negligible effective mass are
+  removed. Clusters are never re-initialized mid-EM to preserve ELBO
+  monotonicity.
+"""
+
 import numpy as np
 import torch
 from sklearn.mixture import GaussianMixture

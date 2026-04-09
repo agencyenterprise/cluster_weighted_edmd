@@ -1,11 +1,49 @@
 """
-Statistical utilities for experiment reproducibility.
+Statistical utilities for multi-seed experiment reproducibility.
 
-Provides:
-  - multi_seed_run: run an experiment across multiple seeds, collect metrics
-  - confidence_interval: mean ± 95% CI from samples
-  - paired_test: paired t-test or Wilcoxon signed-rank with p-value
-  - results_table: format multi-seed results as a printable table
+Provides helpers to run experiments across multiple random seeds,
+compute confidence intervals, perform paired significance tests, and
+print formatted comparison tables.  Used by the validation scripts
+to report mean +/- CI results and to test whether the residual-aware
+method differs significantly from baselines.
+
+Functions
+---------
+- ``confidence_interval(samples)`` -- mean and 95 % CI (t-distribution).
+- ``paired_test(a, b)`` -- paired t-test or Wilcoxon signed-rank test.
+- ``multi_seed_run(run_fn, seeds)`` -- call ``run_fn(seed=s)`` for each
+  seed and collect per-metric arrays.
+- ``summarize(collected)`` -- pretty-print mean +/- CI for every metric.
+- ``compare(name_a, results_a, name_b, results_b)`` -- side-by-side
+  paired comparison with p-values and significance stars.
+
+Usage
+-----
+Run an experiment over five seeds and summarize::
+
+    from residual_aware_clustering.utils.stats import (
+        multi_seed_run, summarize, compare,
+    )
+
+    def my_experiment(seed, **kw):
+        # ... fit model, evaluate ...
+        return {'rmse': 0.12, 'nll': -3.4}   # scalar metrics
+
+    results = multi_seed_run(my_experiment, seeds=[0, 1, 2, 3, 4])
+    summarize(results, label="My method")
+
+    # Compare two methods (same seeds) with paired t-test
+    results_baseline = multi_seed_run(baseline_experiment, seeds=[0, 1, 2, 3, 4])
+    compare("Ours", results, "Baseline", results_baseline)
+
+Key concepts
+------------
+- **Small-sample CI**: ``confidence_interval`` uses the t-distribution,
+  which is appropriate when the number of seeds is small (typically 5-10).
+- **Paired testing**: ``paired_test`` accepts ``'t-test'`` (parametric)
+  or ``'wilcoxon'`` (non-parametric) and supports one-sided alternatives.
+- **Transpose trick**: ``multi_seed_run`` collects a list of dicts and
+  transposes it into a dict of lists for easy per-metric analysis.
 """
 
 import numpy as np
@@ -13,11 +51,27 @@ from scipy import stats as sp_stats
 
 
 def confidence_interval(samples, confidence=0.95):
-    """
-    Compute mean and symmetric CI from an array of samples.
+    """Compute mean and symmetric confidence interval from an array of samples.
 
-    Uses t-distribution (appropriate for small n).
-    Returns (mean, ci_half_width, lo, hi).
+    Uses the t-distribution, which is appropriate for small sample sizes.
+
+    Parameters
+    ----------
+    samples : array_like
+        1-D array of scalar observations.
+    confidence : float
+        Confidence level (default 0.95 for a 95% CI).
+
+    Returns
+    -------
+    mean : float
+        Sample mean.
+    ci_half_width : float
+        Half-width of the confidence interval.
+    lo : float
+        Lower bound of the CI.
+    hi : float
+        Upper bound of the CI.
     """
     samples = np.asarray(samples)
     n = len(samples)
@@ -32,14 +86,23 @@ def confidence_interval(samples, confidence=0.95):
 
 
 def paired_test(a, b, method='t-test', alternative='two-sided'):
-    """
-    Test whether method A differs from method B (paired samples).
+    """Paired significance test between two matched sample arrays.
 
-    a, b: arrays of same length (one value per seed).
-    method: 't-test' (parametric) or 'wilcoxon' (non-parametric).
-    alternative: 'two-sided', 'less' (a < b), 'greater' (a > b).
+    Parameters
+    ----------
+    a : array_like
+        Metric values for method A, one per seed.
+    b : array_like
+        Metric values for method B, same length as *a*.
+    method : {'t-test', 'wilcoxon'}
+        Parametric paired t-test or non-parametric Wilcoxon signed-rank.
+    alternative : {'two-sided', 'less', 'greater'}
+        Direction of the alternative hypothesis.
 
-    Returns dict with 'statistic', 'p_value', 'method', 'mean_diff', 'ci'.
+    Returns
+    -------
+    dict
+        Keys: 'statistic', 'p_value', 'method', 'mean_diff', 'ci', 'n'.
     """
     a, b = np.asarray(a), np.asarray(b)
     diff = a - b
@@ -66,13 +129,22 @@ def paired_test(a, b, method='t-test', alternative='two-sided'):
 
 
 def multi_seed_run(run_fn, seeds, **kwargs):
-    """
-    Run an experiment function across multiple seeds.
+    """Run an experiment function across multiple random seeds.
 
-    run_fn(seed, **kwargs) -> dict of scalar metrics
-    seeds: list of int seeds
+    Parameters
+    ----------
+    run_fn : callable
+        Function with signature ``run_fn(seed=int, **kwargs) -> dict``,
+        returning a dictionary of scalar metrics.
+    seeds : list[int]
+        Random seeds to iterate over.
+    **kwargs
+        Extra keyword arguments forwarded to *run_fn*.
 
-    Returns dict of {metric_name: [values_per_seed]}.
+    Returns
+    -------
+    dict[str, list]
+        Mapping from metric name to list of per-seed values.
     """
     all_results = []
     for seed in seeds:
@@ -86,10 +158,15 @@ def multi_seed_run(run_fn, seeds, **kwargs):
 
 
 def summarize(collected, label=""):
-    """
-    Print summary statistics for multi-seed results.
+    """Print mean +/- CI for each metric in multi-seed results.
 
-    collected: dict of {metric_name: [values_per_seed]}
+    Parameters
+    ----------
+    collected : dict[str, list]
+        Mapping from metric name to list of per-seed values
+        (as returned by ``multi_seed_run``).
+    label : str
+        Optional header label printed before the table.
     """
     if label:
         print(f"\n  {label}")
@@ -100,11 +177,22 @@ def summarize(collected, label=""):
 
 
 def compare(name_a, results_a, name_b, results_b, metrics=None, method='t-test'):
-    """
-    Compare two methods across seeds with paired tests.
+    """Print a side-by-side paired comparison of two methods with p-values.
 
-    results_a, results_b: dicts from multi_seed_run (same seeds).
-    metrics: list of metric names to compare (default: all shared keys).
+    Parameters
+    ----------
+    name_a : str
+        Display name for method A.
+    results_a : dict[str, list]
+        Per-seed results for method A (from ``multi_seed_run``).
+    name_b : str
+        Display name for method B.
+    results_b : dict[str, list]
+        Per-seed results for method B (same seeds as *results_a*).
+    metrics : list[str] or None
+        Metric names to compare. Defaults to all shared keys.
+    method : {'t-test', 'wilcoxon'}
+        Statistical test to use.
     """
     if metrics is None:
         metrics = [k for k in results_a if k in results_b]

@@ -28,11 +28,7 @@ from simulators.pendulum import (
     sample_phase_space, generate_trajectory, wrap_theta, angular_dist,
 )
 from models.em import fit as fit_taylor
-from models.em_hybrid import fit_hybrid
-from models.em_local_edmd import (
-    fit as fit_local_edmd_cont,
-    predict_f_all_clusters, monomial_exponents, monomials,
-)
+from models.em_local_edmd import monomial_exponents, monomials
 from models.em_local_edmd_discrete import (
     fit as fit_local_edmd_disc,
     fit_global as fit_global_disc,
@@ -69,6 +65,10 @@ parser.add_argument('--pendulum-n-train', type=int, default=4000)
 parser.add_argument('--pendulum-n-test', type=int, default=1000)
 parser.add_argument('--pendulum-dt', type=float, default=0.05)
 parser.add_argument('--pendulum-rollout-steps', type=int, default=200)
+parser.add_argument('--pendulum-n-trajs', type=int, default=100,
+                    help="Number of trajectories for discrete EDMD pairs")
+parser.add_argument('--pendulum-traj-len', type=int, default=50,
+                    help="Steps per trajectory for discrete EDMD pairs")
 
 # EM fitting
 parser.add_argument('--n-iter', type=int, default=100)
@@ -328,13 +328,6 @@ def pendulum_predict_f_taylor(x, state):
     return fc + (J @ (x - c).unsqueeze(-1)).squeeze(-1)
 
 
-def pendulum_predict_f_local(x, state, d):
-    k = pick_cluster(x, state)
-    F_all = predict_f_all_clusters(
-        x, state['centers'], state['M_ops'], state['exps'], d)
-    return F_all[torch.arange(x.shape[0]), k]
-
-
 def pendulum_euler_step(x, f_val, dt):
     return wrap_theta(x + dt * f_val)
 
@@ -346,6 +339,48 @@ def pendulum_rollout(x0, predict_fn, model, n_steps, dt, d):
         f_hat = predict_fn(traj[t:t + 1], model)[0]
         traj[t + 1] = pendulum_euler_step(traj[t], f_hat, dt)
     return traj
+
+
+def pendulum_generate_trajectory_pairs(n_trajs, traj_len, dt, seed):
+    """Generate consecutive (x_t, x_{t+1}) pairs from multiple pendulum trajectories."""
+    rng = np.random.default_rng(seed)
+    X_curr, X_next = [], []
+    for _ in range(n_trajs):
+        x0 = np.array([rng.uniform(-np.pi, np.pi), rng.uniform(-3.0, 3.0)])
+        traj = generate_trajectory(x0, n_steps=traj_len, dt=dt, wrap=True)
+        X_curr.append(traj[:-1])
+        X_next.append(traj[1:])
+    return (torch.tensor(np.concatenate(X_curr), dtype=torch.float64),
+            torch.tensor(np.concatenate(X_next), dtype=torch.float64))
+
+
+def pendulum_disc_rollout_err(model, inits, n_steps, dt, d):
+    errs = []
+    for x0 in inits:
+        tru = torch.tensor(generate_trajectory(x0.numpy(), n_steps=n_steps, dt=dt),
+                           dtype=torch.float64)
+        traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
+        traj[0] = x0
+        for t in range(n_steps):
+            traj[t + 1] = wrap_theta(predict_next_disc(traj[t:t + 1], model))
+        errs.append(angular_dist(traj[n_steps], tru[n_steps]).item())
+    return float(np.mean(errs))
+
+
+def pendulum_disc_local_rollout_err(state, inits, n_steps, dt, d):
+    errs = []
+    for x0 in inits:
+        tru = torch.tensor(generate_trajectory(x0.numpy(), n_steps=n_steps, dt=dt),
+                           dtype=torch.float64)
+        traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
+        traj[0] = x0
+        for t in range(n_steps):
+            k = pick_cluster(traj[t:t + 1], state)
+            preds = predict_next_all_disc(traj[t:t + 1], state['centers'],
+                                          state['K_ops'], state['exps'], d)
+            traj[t + 1] = wrap_theta(preds[0, k[0]])
+        errs.append(angular_dist(traj[n_steps], tru[n_steps]).item())
+    return float(np.mean(errs))
 
 
 def pendulum_eval_rollout(predict_fn, model, inits, n_roll, dt, d):
@@ -415,7 +450,19 @@ def run_pendulum_seed(seed):
 
     results = {}
 
-    # ── Global EDMD ──────────────────────────────────────────────────────
+    # Generate trajectory pairs for discrete EDMD
+    X_tr_curr, X_tr_next = pendulum_generate_trajectory_pairs(
+        args.pendulum_n_trajs, args.pendulum_traj_len, dt, seed)
+
+    # Discrete test pairs: integrate from test inits for one step
+    X_te_disc_curr = X_te
+    X_te_disc_next = torch.stack([
+        torch.tensor(generate_trajectory(x.numpy(), n_steps=1, dt=dt)[1],
+                     dtype=torch.float64)
+        for x in X_te
+    ])
+
+    # ── Global EDMD (continuous) ─────────────────────────────────────────
     for deg in args.pendulum_edmd_degrees:
         g = pendulum_fit_global_edmd(X_tr, F_tr, deg, d)
         F_pred = pendulum_predict_global(X_te, g, d)
@@ -423,18 +470,29 @@ def run_pendulum_seed(seed):
         r10s = pendulum_eval_rollout_global(g, rollout_inits, n_roll, dt, d)
         results[f'Global EDMD deg={deg}'] = {'one_step': one, 'rollout_10s': r10s}
 
-    # ── Local EDMD (continuous) ──────────────────────────────────────────
+    # ── Global discrete EDMD ─────────────────────────────────────────────
+    for deg in args.pendulum_edmd_degrees:
+        g = fit_global_disc(X_tr_curr, X_tr_next, degree=deg)
+        pred = predict_next_disc(X_te_disc_curr, g)
+        one = angular_dist(pred, X_te_disc_next).mean().item()
+        r10s = pendulum_disc_rollout_err(g, rollout_inits, n_roll, dt, d)
+        results[f'EDMD-disc deg={deg}'] = {'one_step': one, 'rollout_10s': r10s}
+
+    # ── Local discrete EDMD ──────────────────────────────────────────────
     for N in args.pendulum_N:
-        s, _, _ = fit_local_edmd_cont(
-            X_tr, F_tr, N=N, hp={**hp, 'sigma2': 'auto'},
+        hp_disc = make_hp_pendulum(X_tr_curr, d)
+        s_ld, _, _ = fit_local_edmd_disc(
+            X_tr_curr, X_tr_next, N=N, hp={**hp_disc, 'sigma2': 'auto'},
             degree=2, n_iter=args.n_iter, n_restarts=args.n_restarts,
             verbose=False)
-        F_pred = pendulum_predict_f_local(X_te, s, d)
-        one = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
-        r10s = pendulum_eval_rollout(
-            lambda x, m: pendulum_predict_f_local(x, m, d), s,
-            rollout_inits, n_roll, dt, d)
-        results[f'local-EDMD d2 N={N}'] = {'one_step': one, 'rollout_10s': r10s}
+        k = pick_cluster(X_te_disc_curr, s_ld)
+        preds = predict_next_all_disc(
+            X_te_disc_curr, s_ld['centers'], s_ld['K_ops'], s_ld['exps'], d)
+        one = angular_dist(
+            preds[torch.arange(len(X_te_disc_curr)), k], X_te_disc_next
+        ).mean().item()
+        r10s = pendulum_disc_local_rollout_err(s_ld, rollout_inits, n_roll, dt, d)
+        results[f'Local-EDMD-disc N={N}'] = {'one_step': one, 'rollout_10s': r10s}
 
     # ── Taylor-analytic ──────────────────────────────────────────────────
     for N in args.pendulum_N:
@@ -448,18 +506,6 @@ def run_pendulum_seed(seed):
             pendulum_predict_f_taylor, s, rollout_inits, n_roll, dt, d)
         results[f'Taylor-analytic N={N}'] = {'one_step': one, 'rollout_10s': r10s}
 
-    # ── Taylor-LS ────────────────────────────────────────────────────────
-    for N in args.pendulum_N:
-        s, _, _ = fit_hybrid(
-            X_tr, F_tr, pendulum_f, pendulum_J,
-            N=N, hp={**hp, 'sigma2': 'auto'},
-            n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
-        F_pred = pendulum_predict_f_taylor(X_te, s)
-        one = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
-        r10s = pendulum_eval_rollout(
-            pendulum_predict_f_taylor, s, rollout_inits, n_roll, dt, d)
-        results[f'Taylor-LS N={N}'] = {'one_step': one, 'rollout_10s': r10s}
-
     # Collect model states for visualization
     models = {}
     best_N = args.pendulum_N[len(args.pendulum_N) // 2]
@@ -470,21 +516,19 @@ def run_pendulum_seed(seed):
         n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
     models['taylor'] = s_taylor
 
-    s_ls, _, _ = fit_hybrid(
-        X_tr, F_tr, pendulum_f, pendulum_J,
-        N=best_N, hp={**hp, 'sigma2': 'auto'},
-        n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
-    models['taylor_ls'] = s_ls
-
-    s_local, _, _ = fit_local_edmd_cont(
-        X_tr, F_tr, N=best_N, hp={**hp, 'sigma2': 'auto'},
+    hp_disc = make_hp_pendulum(X_tr_curr, d)
+    s_disc, _, _ = fit_local_edmd_disc(
+        X_tr_curr, X_tr_next, N=best_N, hp={**hp_disc, 'sigma2': 'auto'},
         degree=2, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
-    models['local_edmd'] = s_local
+    models['local_edmd_disc'] = s_disc
 
     best_deg = args.pendulum_edmd_degrees[-1]
     g_global = pendulum_fit_global_edmd(X_tr, F_tr, best_deg, d)
     models['global_edmd'] = g_global
     models['global_edmd_degree'] = best_deg
+
+    g_global_disc = fit_global_disc(X_tr_curr, X_tr_next, degree=2)
+    models['global_edmd_disc'] = g_global_disc
 
     models['X_tr'] = X_tr
     models['F_tr'] = F_tr
@@ -610,11 +654,15 @@ if not args.skip_pendulum:
     pendulum_pairs = [
         ('Taylor-analytic N=8', 'Global EDMD deg=8', 'rollout_10s',
          'Taylor-ana N=8 vs Global deg=8'),
-        ('Taylor-analytic N=8', 'Taylor-LS N=8', 'rollout_10s',
-         'Taylor-ana N=8 vs Taylor-LS N=8'),
-        ('local-EDMD d2 N=2', 'Global EDMD deg=6', 'rollout_10s',
-         'local-EDMD N=2 vs Global deg=6'),
     ]
+    for N in args.pendulum_N:
+        pendulum_pairs.append(
+            (f'Local-EDMD-disc N={N}', f'EDMD-disc deg=2', 'one_step',
+             f'Local-EDMD-disc N={N} vs EDMD-disc deg=2'))
+    for N in args.pendulum_N:
+        pendulum_pairs.append(
+            (f'Local-EDMD-disc N={N}', f'EDMD-disc deg=2', 'rollout_10s',
+             f'Local-EDMD-disc N={N} vs EDMD-disc deg=2 (rollout)'))
     paired_tests("Pendulum", pendulum_runs, pendulum_pairs)
 
     with open(data_path("statistical_pendulum.json"), "w") as fp:

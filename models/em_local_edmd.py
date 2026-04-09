@@ -1,19 +1,91 @@
 """
-Local EDMD per cluster.
+Residual-aware clustering with piecewise continuous Koopman generators.
 
-Each cluster k carries a local continuous-time Koopman generator M_k in a
-polynomial-lifted space anchored at c_k:
+Fits N local continuous-time Koopman generators M_k via Expectation-Maximization.
+Each cluster k owns a polynomial-lifted operator that approximates the vector
+field (dx/dt = f(x)) locally around its center c_k:
 
-    L_k(x) = [ M_k · Phi(x - c_k) ]_{1..d}
+    f(x) ~ [M_k . Phi(x - c_k)]_{1:d}
 
-where Phi(u) = [1, u_1, ..., u_d, u_1^2, u_1 u_2, ..., u_d^p]  (monomials up to
-total degree p). The bias + first-order entries of Phi are [1, u], so the
-entries of M_k · Phi corresponding to d/dt u_i give the predicted f_i(x).
+where Phi(u) collects monomials up to a given total degree. This is the
+**continuous-time** counterpart of ``em_local_edmd_discrete.py``, which
+instead maps x_t to x_{t+1} directly.
 
-The framework is identical to em.py / em_hybrid.py — same E-step structure,
-same dead-cluster pruning, same monotone-ELBO contract — but the residual
-is computed against local EDMD predictions instead of affine ones, and the
-M-step fits M_k by weighted continuous EDMD per cluster.
+Continuous vs discrete
+~~~~~~~~~~~~~~~~~~~~~~
+- **Continuous** (this module): input is (X, F) where F[i] = f(x_i) is the
+  vector field evaluated at x_i. The operator M_k is a Koopman *generator*
+  that acts on the time-derivative of the lifted observables.
+- **Discrete** (``em_local_edmd_discrete``): input is (X, X_next) consecutive
+  state pairs. The operator K_k is a discrete Koopman *operator*.
+
+Use the continuous variant when you have access to f(x) (e.g. from an ODE
+right-hand side), and the discrete variant when you only have trajectory
+snapshots.
+
+Usage
+-----
+Fit piecewise continuous Koopman generators::
+
+    import torch
+    from residual_aware_clustering.models.em_local_edmd import (
+        fit, predict_f_all_clusters, ObservableType, make_exponents,
+    )
+
+    # State points and vector field evaluations
+    X = torch.tensor(x_data, dtype=torch.float64)    # (P, d)
+    F = torch.tensor(f_data, dtype=torch.float64)    # (P, d)  f(x_i) at each point
+
+    d = X.shape[1]
+    hp = {
+        'alpha0':  1.0,
+        'mu0':     torch.zeros(d, dtype=torch.float64),
+        'Lambda0': 0.01 * torch.eye(d, dtype=torch.float64),
+        'kappa0':  0.01,
+        'Psi0':    torch.eye(d, dtype=torch.float64),
+        'nu0':     float(d + 2),
+        'sigma2':  'auto',
+    }
+
+    state, responsibilities, elbos = fit(
+        X, F, N=5, hp=hp, degree=2, n_iter=100,
+    )
+
+    # Predict f(x) under all clusters
+    F_pred = predict_f_all_clusters(
+        X, state['centers'], state['M_ops'], state['exps'], d,
+    )  # (P, N_active, d)
+
+Observable types (monomial bases)
+---------------------------------
+Two monomial bases are available via ``ObservableType``:
+
+- ``FULL``: all multivariate monomials up to total degree p, including cross
+  terms (e.g. x1*x2). Count = C(d+p, p). Use for low-dimensional systems.
+- ``DIAGONAL``: only univariate powers x_i^k, no cross terms.
+  Count = 1 + d*p. Scales better to high-dimensional state spaces.
+
+Select the basis via ``make_exponents``::
+
+    exps_full = make_exponents(d=3, degree=2, observable_type=ObservableType.FULL)
+    # 10 monomials: 1, x1, x2, x3, x1^2, x1*x2, x1*x3, x2^2, x2*x3, x3^2
+
+    exps_diag = make_exponents(d=3, degree=2, observable_type=ObservableType.DIAGONAL)
+    # 7 monomials: 1, x1, x2, x3, x1^2, x2^2, x3^2
+
+Key concepts
+------------
+- **Koopman generator**: M_k acts on Phi-dot (the chain rule derivative of
+  the lifted observables), solved via weighted continuous EDMD with ridge
+  regularization.
+- **Residual**: eps_k(x) = f(x) - [M_k . Phi(x - c_k)]_{1:d}. Points
+  where the local generator is accurate get higher responsibility.
+- **Same EM scaffold**: E-step, M-step, ELBO, dead-cluster pruning, and
+  multiple restarts follow the same structure as the discrete variant
+  and the Taylor-analytic baseline (``em.py``).
+
+Also provides monomial utilities: ``monomial_exponents``, ``monomials``,
+``monomials_grad``, ``diagonal_monomial_exponents``, ``make_exponents``.
 """
 
 from enum import Enum
@@ -39,10 +111,22 @@ class ObservableType(Enum):
 
 def monomial_exponents(d: int, degree: int) -> list:
     """
-    All monomial exponent tuples up to total degree `degree`.
-    Ordering: bias first, then by degree, lexicographic within each degree.
-    For d=3, degree=2 → 10 monomials: (000), (100), (010), (001), (200), (110),
-                                       (101), (020), (011), (002).
+    Generate all monomial exponent tuples up to a given total degree.
+
+    Ordering: bias (constant) first, then by degree, lexicographic within
+    each degree. For d=3, degree=2 this yields 10 monomials.
+
+    Parameters
+    ----------
+    d : int
+        State-space dimension.
+    degree : int
+        Maximum total degree of monomials.
+
+    Returns
+    -------
+    list of tuple
+        Each tuple has length ``d`` with non-negative integer exponents.
     """
     exps = []
     for p in range(degree + 1):
@@ -56,9 +140,21 @@ def monomial_exponents(d: int, degree: int) -> list:
 
 def diagonal_monomial_exponents(d: int, degree: int) -> list:
     """
-    Univariate monomial exponents up to degree `degree` — no cross terms.
-    For d=3, degree=2 → 7 monomials: (000), (100), (010), (001), (200), (020), (002).
-    Count: 1 + d*degree.
+    Generate univariate monomial exponents (no cross terms).
+
+    For d=3, degree=2 this yields 7 monomials. Count: ``1 + d * degree``.
+
+    Parameters
+    ----------
+    d : int
+        State-space dimension.
+    degree : int
+        Maximum univariate degree.
+
+    Returns
+    -------
+    list of tuple
+        Each tuple has length ``d`` with at most one nonzero entry.
     """
     exps = [tuple([0] * d)]  # constant term
     for p in range(1, degree + 1):
@@ -71,7 +167,24 @@ def diagonal_monomial_exponents(d: int, degree: int) -> list:
 
 def make_exponents(d: int, degree: int,
                    observable_type: ObservableType = ObservableType.FULL) -> list:
-    """Factory for monomial exponents based on observable type."""
+    """
+    Create monomial exponent tuples for the chosen observable basis.
+
+    Parameters
+    ----------
+    d : int
+        State-space dimension.
+    degree : int
+        Maximum polynomial degree.
+    observable_type : ObservableType, optional
+        ``FULL`` for all multivariate monomials, ``DIAGONAL`` for univariate
+        only, by default ``ObservableType.FULL``.
+
+    Returns
+    -------
+    list of tuple
+        Monomial exponent tuples.
+    """
     if observable_type == ObservableType.FULL:
         return monomial_exponents(d, degree)
     elif observable_type == ObservableType.DIAGONAL:
@@ -82,8 +195,19 @@ def make_exponents(d: int, degree: int,
 
 def monomials(U: torch.Tensor, exps: list) -> torch.Tensor:
     """
-    U: (P, d)   exps: list of d-tuples
-    Returns: (P, M) monomial values.
+    Evaluate monomial basis at given points.
+
+    Parameters
+    ----------
+    U : torch.Tensor
+        Shifted state points, shape ``(P, d)``.
+    exps : list of tuple
+        Monomial exponent tuples of length ``d``.
+
+    Returns
+    -------
+    torch.Tensor
+        Monomial values, shape ``(P, M)`` where ``M = len(exps)``.
     """
     P, d = U.shape
     M = len(exps)
@@ -97,9 +221,20 @@ def monomials(U: torch.Tensor, exps: list) -> torch.Tensor:
 
 def monomials_grad(U: torch.Tensor, exps: list) -> torch.Tensor:
     """
-    U: (P, d)   exps: list of d-tuples
-    Returns: (P, M, d) — dPhi_j / du_i for each monomial j and coord i.
-    d(prod_k u_k^{e_k}) / du_i = e_i * u_i^{e_i - 1} * prod_{k!=i} u_k^{e_k}
+    Compute the gradient of each monomial with respect to each coordinate.
+
+    Parameters
+    ----------
+    U : torch.Tensor
+        Shifted state points, shape ``(P, d)``.
+    exps : list of tuple
+        Monomial exponent tuples of length ``d``.
+
+    Returns
+    -------
+    torch.Tensor
+        Gradient tensor, shape ``(P, M, d)`` where entry ``[i, j, k]`` is
+        ``dPhi_j / du_k`` evaluated at ``U[i]``.
     """
     P, d = U.shape
     M = len(exps)
@@ -188,6 +323,31 @@ def residual_logpdf_local_edmd(
     exps:    list,
     d:       int,
 ) -> torch.Tensor:            # (P, N)
+    """
+    Compute residual log-pdf under each cluster's local EDMD generator.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        State points, shape ``(P, d)``.
+    F : torch.Tensor
+        Vector field evaluations, shape ``(P, d)``.
+    centers : torch.Tensor
+        Cluster centers, shape ``(N, d)``.
+    M_ops : torch.Tensor
+        Koopman generator matrices, shape ``(N, M, M)``.
+    sigma2 : float or torch.Tensor
+        Per-cluster residual variance. Scalar or tensor of shape ``(N,)``.
+    exps : list
+        Monomial exponent tuples.
+    d : int
+        State-space dimension.
+
+    Returns
+    -------
+    torch.Tensor
+        Log-pdf values, shape ``(P, N)``.
+    """
     F_pred  = predict_f_all_clusters(X, centers, M_ops, exps, d)
     eps     = F.unsqueeze(1) - F_pred                      # (P, N, d)
     sq_norm = (eps ** 2).sum(dim=2)                        # (P, N)
@@ -206,6 +366,25 @@ def e_step(
     state: dict,
     hp:    dict,
 ) -> torch.Tensor:
+    """
+    Compute soft assignments using proximity and local EDMD residual likelihoods.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        State points, shape ``(P, d)``.
+    F : torch.Tensor
+        Vector field evaluations, shape ``(P, d)``.
+    state : dict
+        Current EM state containing centers, covariances, M_ops, etc.
+    hp : dict
+        Hyperparameters (alpha0, mu0, Lambda0, etc.).
+
+    Returns
+    -------
+    torch.Tensor
+        Responsibility matrix, shape ``(P, N)``.
+    """
     log_prox  = mvn_logpdf_batch(X, state['centers'], state['covariances'])
     log_resid = residual_logpdf_local_edmd(
         X, F, state['centers'], state['M_ops'], state['sigma2'],
@@ -228,6 +407,30 @@ def m_step(
     state: dict,
     hp:    dict,
 ) -> dict:
+    """
+    Update all parameters given soft assignments.
+
+    Updates centers (proximity-style), local EDMD operators, covariances,
+    mixing weights, and per-cluster residual variances.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        State points, shape ``(P, d)``.
+    F : torch.Tensor
+        Vector field evaluations, shape ``(P, d)``.
+    r : torch.Tensor
+        Responsibility matrix, shape ``(P, N)``.
+    state : dict
+        Current EM state.
+    hp : dict
+        Hyperparameters.
+
+    Returns
+    -------
+    dict
+        Updated EM state.
+    """
     N, d, P = state['N'], state['d'], state['P']
     alpha0  = hp['alpha0']
     mu0     = hp['mu0']
@@ -299,6 +502,30 @@ def compute_elbo_local(
     X:     torch.Tensor, F: torch.Tensor, r: torch.Tensor,
     state: dict, hp: dict,
 ) -> torch.Tensor:
+    """
+    Compute the ELBO for the local EDMD model.
+
+    Uses the same six-term structure as ``elbo.compute_elbo`` but substitutes
+    the Taylor residual term with the local EDMD residual log-likelihood.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        State points, shape ``(P, d)``.
+    F : torch.Tensor
+        Vector field evaluations, shape ``(P, d)``.
+    r : torch.Tensor
+        Responsibility matrix, shape ``(P, N)``.
+    state : dict
+        Current EM state with M_ops, centers, covariances, etc.
+    hp : dict
+        Hyperparameters.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar ELBO value.
+    """
     from .distributions import dirichlet_logpdf, niw_logpdf
     N = state['N']
 
@@ -331,6 +558,31 @@ def initialize(
     X: torch.Tensor, F: torch.Tensor,
     N: int, hp: dict, degree: int = 2, seed: int = 42,
 ) -> dict:
+    """
+    Initialize EM state with GMM warm start and per-cluster EDMD operators.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        State points, shape ``(P, d)``.
+    F : torch.Tensor
+        Vector field evaluations, shape ``(P, d)``.
+    N : int
+        Number of initial clusters.
+    hp : dict
+        Hyperparameters. If ``hp['sigma2'] == 'auto'``, per-cluster residual
+        variances are calibrated from initial EDMD residuals.
+    degree : int, optional
+        Polynomial degree for monomial lifting, by default 2.
+    seed : int, optional
+        Random seed for GMM initialization, by default 42.
+
+    Returns
+    -------
+    dict
+        Initial EM state with keys ``'pi'``, ``'centers'``, ``'covariances'``,
+        ``'M_ops'``, ``'sigma2'``, ``'exps'``, etc.
+    """
     P, d = X.shape
     exps = monomial_exponents(d, degree)
     Mdim = len(exps)
@@ -390,6 +642,31 @@ def initialize(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def prune_dead(state, r, X, F, hp, threshold=1.0, min_N=2):
+    """
+    Remove clusters whose effective mass falls below a threshold.
+
+    Parameters
+    ----------
+    state : dict
+        Current EM state.
+    r : torch.Tensor
+        Responsibility matrix, shape ``(P, N)``.
+    X : torch.Tensor
+        State points, shape ``(P, d)``.
+    F : torch.Tensor
+        Vector field evaluations, shape ``(P, d)``.
+    hp : dict
+        Hyperparameters.
+    threshold : float, optional
+        Minimum effective mass to keep a cluster, by default 1.0.
+    min_N : int, optional
+        Never reduce below this many clusters, by default 2.
+
+    Returns
+    -------
+    tuple of (dict, torch.Tensor)
+        Updated state and recomputed responsibilities.
+    """
     R    = r.sum(dim=0)
     dead = (R < threshold).nonzero(as_tuple=True)[0].tolist()
     if not dead:
@@ -422,6 +699,35 @@ def fit(
     N: int, hp: dict, degree: int = 2,
     n_iter: int = 100, tol: float = 1e-4, n_restarts: int = 3, verbose: bool = True,
 ) -> tuple:
+    """
+    Run multi-restart EM with local continuous EDMD operators.
+
+    Parameters
+    ----------
+    X : torch.Tensor
+        State points, shape ``(P, d)``.
+    F : torch.Tensor
+        Vector field evaluations, shape ``(P, d)``.
+    N : int
+        Initial number of clusters.
+    hp : dict
+        Hyperparameters.
+    degree : int, optional
+        Polynomial degree for monomial lifting, by default 2.
+    n_iter : int, optional
+        Maximum EM iterations per restart, by default 100.
+    tol : float, optional
+        ELBO convergence tolerance, by default 1e-4.
+    n_restarts : int, optional
+        Number of random restarts, by default 3.
+    verbose : bool, optional
+        Print progress, by default True.
+
+    Returns
+    -------
+    tuple of (dict, torch.Tensor, list)
+        Best state, best responsibilities ``(P, N_active)``, and ELBO history.
+    """
     best_elbo = -torch.inf
     best_state, best_r, best_history = None, None, None
 

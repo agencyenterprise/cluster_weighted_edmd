@@ -21,14 +21,7 @@ echo "  Statistical seeds (${N_SEEDS}): ${SEEDS_STR}"
 echo "============================================================"
 echo ""
 
-# ── Statistical validation (multi-seed) ───────────────────────────
-echo "[1/2] Lorenz: statistical validation (${N_SEEDS} seeds, CIs, p-values)"
-python -m validation.validation_lorenz_statistical --seeds ${SEEDS_STR}
-echo ""
-
-echo "[2/2] Pendulum: statistical validation (${N_SEEDS} seeds, CIs, p-values)"
-python -m validation.validation_pendulum_statistical --seeds ${SEEDS_STR}
-echo ""
+python -m validation.run_statistical --seeds ${SEEDS_STR}
 
 echo "============================================================"
 echo "  All experiments complete."

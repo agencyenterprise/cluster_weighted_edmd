@@ -1,10 +1,71 @@
 """
-GPU-compatible local discrete-time EDMD per cluster.
+Residual-aware clustering with piecewise discrete Koopman operators (GPU/MPS).
 
-Drop-in replacement for em_local_edmd_discrete.py that works on any device
-(CPU, CUDA, MPS). All tensor creation calls propagate device from the input
-data. sklearn GaussianMixture (CPU-only) is called with explicit .cpu().numpy()
-and results are moved back to the target device.
+Drop-in replacement for ``em_local_edmd_discrete.py`` that runs on CPU, CUDA,
+and MPS devices. The API is identical -- swap the import and pass GPU tensors.
+
+The key difference from the CPU version is the linear-algebra solver:
+
+- **CPU version** uses ``torch.linalg.lstsq`` (LAPACK gelsd driver).
+- **This version** uses an SVD-based pseudoinverse (``_lstsq_svd``) that
+  truncates small singular values. This avoids CUDA/MPS compatibility issues
+  with gelsd while producing equivalent results.
+
+For **MPS** (Apple Silicon), which does not support float64 natively, the EM
+loop runs internally at float64 on CPU and casts results back to the original
+device and dtype at the end. This avoids numerical instability in log-space
+probability computations. For CUDA, everything stays on the GPU.
+
+Usage
+-----
+Identical to the CPU version, but with device-aware tensors::
+
+    import torch
+    from residual_aware_clustering.models.em_local_edmd_discrete_gpu import (
+        fit, predict_next_all_clusters,
+    )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    X      = torch.tensor(x_data[:-1], dtype=torch.float64, device=device)
+    X_next = torch.tensor(x_data[1:],  dtype=torch.float64, device=device)
+
+    d = X.shape[1]
+    hp = {
+        'alpha0':  1.0,
+        'mu0':     torch.zeros(d, dtype=torch.float64, device=device),
+        'Lambda0': 0.01 * torch.eye(d, dtype=torch.float64, device=device),
+        'kappa0':  0.01,
+        'Psi0':    torch.eye(d, dtype=torch.float64, device=device),
+        'nu0':     float(d + 2),
+        'sigma2':  'auto',
+    }
+
+    state, responsibilities, elbos = fit(
+        X, X_next, N=5, hp=hp, degree=2, n_iter=100,
+    )
+
+    # Predict next states (result lives on the same device as input)
+    X_pred = predict_next_all_clusters(
+        X, state['centers'], state['K_ops'], state['exps'], d,
+    )
+
+When to use GPU vs CPU
+----------------------
+- **CUDA**: use this module when P (number of data points) or d (state
+  dimension) is large enough that matrix operations benefit from GPU
+  parallelism. The SVD solver adds negligible overhead.
+- **MPS**: use this module for Apple Silicon. EM will run on CPU at float64
+  automatically, so the speedup comes mainly from data preprocessing and
+  prediction steps that can stay on MPS.
+- **CPU-only**: prefer ``em_local_edmd_discrete.py`` -- it uses the native
+  LAPACK driver which is slightly faster when no GPU is involved.
+
+Key concepts
+------------
+Same as ``em_local_edmd_discrete.py``: piecewise discrete Koopman operators
+fit via EM with polynomial lifting, responsibility-weighted pseudoinverse,
+dead-cluster pruning, and multiple restarts. See that module for full details.
 """
 
 import numpy as np
@@ -20,10 +81,24 @@ from .em_local_edmd import monomial_exponents, monomials
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _lstsq_svd(A, B, rcond=1e-10):
-    """SVD-based least squares: solves A @ X = B via truncated pseudoinverse.
+    """Solve A @ X = B via SVD-based truncated pseudoinverse.
 
-    Equivalent to gelsd: uses SVD, thresholds small singular values.
-    Works reliably on CPU, CUDA, and MPS.
+    Equivalent to LAPACK gelsd but portable across CPU, CUDA, and MPS.
+    Singular values below ``rcond * max(S)`` are treated as zero.
+
+    Parameters
+    ----------
+    A : torch.Tensor, shape (P, M)
+        Design matrix.
+    B : torch.Tensor, shape (P, K)
+        Right-hand side.
+    rcond : float, optional
+        Relative cutoff for singular values (default 1e-10).
+
+    Returns
+    -------
+    torch.Tensor, shape (M, K)
+        Least-squares solution X.
     """
     U, S, Vh = torch.linalg.svd(A, full_matrices=False)
     # Threshold: ignore singular values below rcond * max(S)
@@ -34,6 +109,29 @@ def _lstsq_svd(A, B, rcond=1e-10):
 
 
 def weighted_discrete_edmd(X, X_next, r_k, c_k, exps):
+    """Fit a local discrete Koopman operator via weighted least squares.
+
+    GPU-compatible variant using ``_lstsq_svd`` instead of
+    ``torch.linalg.lstsq``.
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states.
+    r_k : torch.Tensor, shape (P,)
+        Responsibility weights for cluster *k*.
+    c_k : torch.Tensor, shape (d,)
+        Cluster center.
+    exps : list of tuple
+        Monomial exponent tuples produced by ``monomial_exponents``.
+
+    Returns
+    -------
+    torch.Tensor, shape (M, M)
+        Discrete Koopman operator K_k in the lifted space.
+    """
     U_curr = X - c_k
     U_next = X_next - c_k
     Phi_curr = monomials(U_curr, exps)
@@ -51,6 +149,26 @@ def weighted_discrete_edmd(X, X_next, r_k, c_k, exps):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def predict_next_all_clusters(X, centers, K_ops, exps, d):
+    """Predict x_{t+1} under each cluster's discrete Koopman operator.
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    centers : torch.Tensor, shape (N, d)
+        Cluster centers.
+    K_ops : torch.Tensor, shape (N, M, M)
+        Per-cluster Koopman operators in the lifted space.
+    exps : list of tuple
+        Monomial exponent tuples.
+    d : int
+        Raw state dimension.
+
+    Returns
+    -------
+    torch.Tensor, shape (P, N, d)
+        Predicted next states under each cluster.
+    """
     P = X.shape[0]
     N = centers.shape[0]
     X_pred = torch.zeros(P, N, d, dtype=X.dtype, device=X.device)
@@ -67,6 +185,30 @@ def predict_next_all_clusters(X, centers, K_ops, exps, d):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def residual_logpdf_discrete(X, X_next, centers, K_ops, sigma2, exps, d):
+    """Compute log-pdf of the prediction residual under an isotropic Gaussian.
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states (targets).
+    centers : torch.Tensor, shape (N, d)
+        Cluster centers.
+    K_ops : torch.Tensor, shape (N, M, M)
+        Per-cluster Koopman operators.
+    sigma2 : float or torch.Tensor, shape (N,)
+        Isotropic residual variance per cluster.
+    exps : list of tuple
+        Monomial exponent tuples.
+    d : int
+        Raw state dimension.
+
+    Returns
+    -------
+    torch.Tensor, shape (P, N)
+        Log-pdf of the residual for each point under each cluster.
+    """
     X_pred = predict_next_all_clusters(X, centers, K_ops, exps, d)
     eps    = X_next.unsqueeze(1) - X_pred
     sq_norm = (eps ** 2).sum(dim=2)
@@ -84,6 +226,24 @@ def residual_logpdf_discrete(X, X_next, centers, K_ops, sigma2, exps, d):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def e_step(X, X_next, state, hp):
+    """Compute cluster responsibilities (E-step).
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states.
+    state : dict
+        Current EM state.
+    hp : dict
+        Hyperparameters.
+
+    Returns
+    -------
+    torch.Tensor, shape (P, N)
+        Normalised cluster responsibilities.
+    """
     log_prox  = mvn_logpdf_batch(X, state['centers'], state['covariances'])
     log_resid = residual_logpdf_discrete(
         X, X_next, state['centers'], state['K_ops'], state['sigma2'],
@@ -100,6 +260,26 @@ def e_step(X, X_next, state, hp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def m_step(X, X_next, r, state, hp):
+    """Update all cluster parameters given responsibilities (M-step).
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states.
+    r : torch.Tensor, shape (P, N)
+        Cluster responsibilities from the E-step.
+    state : dict
+        Current EM state.
+    hp : dict
+        Hyperparameters.
+
+    Returns
+    -------
+    dict
+        Updated EM state.
+    """
     N, d, P = state['N'], state['d'], state['P']
     dev = X.device
     alpha0  = hp['alpha0']
@@ -165,6 +345,26 @@ def m_step(X, X_next, r, state, hp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def compute_elbo(X, X_next, r, state, hp):
+    """Compute the evidence lower bound (ELBO) for the current EM state.
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states.
+    r : torch.Tensor, shape (P, N)
+        Cluster responsibilities.
+    state : dict
+        Current EM state.
+    hp : dict
+        Hyperparameters.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar ELBO value.
+    """
     N = state['N']
 
     log_pi = torch.log(state['pi'])
@@ -194,6 +394,32 @@ def compute_elbo(X, X_next, r, state, hp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def prune_dead(state, r, X, X_next, hp, threshold=1.0, min_N=2):
+    """Remove clusters whose total responsibility falls below a threshold.
+
+    Parameters
+    ----------
+    state : dict
+        Current EM state.
+    r : torch.Tensor, shape (P, N)
+        Cluster responsibilities.
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states.
+    hp : dict
+        Hyperparameters.
+    threshold : float, optional
+        Minimum total responsibility to keep a cluster (default 1.0).
+    min_N : int, optional
+        Minimum number of clusters to retain (default 2).
+
+    Returns
+    -------
+    state : dict
+        Updated EM state with dead clusters removed.
+    r : torch.Tensor, shape (P, N_active)
+        Recomputed responsibilities.
+    """
     R    = r.sum(dim=0)
     dead = (R < threshold).nonzero(as_tuple=True)[0].tolist()
     if not dead:
@@ -222,6 +448,33 @@ def prune_dead(state, r, X, X_next, hp, threshold=1.0, min_N=2):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def initialize(X, X_next, N, hp, degree=2, seed=42):
+    """Create the initial EM state using a GMM fit on the current states.
+
+    GMM runs on CPU (sklearn), then results are moved to the input tensor's
+    device. Handles the case where sklearn finds fewer components than
+    requested.
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states.
+    N : int
+        Number of initial clusters.
+    hp : dict
+        Hyperparameters. If ``hp['sigma2'] == 'auto'``, sigma2 is calibrated
+        from median squared residuals.
+    degree : int, optional
+        Total polynomial degree for the monomial lift (default 2).
+    seed : int, optional
+        Random seed for the GMM initialisation (default 42).
+
+    Returns
+    -------
+    dict
+        Initial EM state.
+    """
     P, d = X.shape
     dev = X.device
     dt = X.dtype
@@ -301,6 +554,20 @@ def initialize(X, X_next, N, hp, degree=2, seed=42):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def check_monotone(history, tol=1.0):
+    """Check whether the ELBO history is monotonically non-decreasing.
+
+    Parameters
+    ----------
+    history : list of float
+        ELBO values across EM iterations.
+    tol : float, optional
+        Allowed decrease before flagging a violation (default 1.0).
+
+    Returns
+    -------
+    bool
+        True if no violations exceed *tol*.
+    """
     if len(history) < 2:
         return True
     violations = [
@@ -326,12 +593,41 @@ def _to_device_dtype(state, r, device, dtype):
 
 def fit(X, X_next, N, hp, degree=2,
         n_iter=100, tol=1e-4, n_restarts=3, verbose=True):
-    """
-    Fit discrete local EDMD via EM. GPU-compatible version.
+    """Fit piecewise discrete Koopman operators via EM (GPU-compatible).
 
     Works on CPU, CUDA, and MPS. For MPS (float32-only), the EM runs
     internally at float64 on CPU to avoid numerical issues in
     log-probability computations, then casts results back.
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states.
+    N : int
+        Initial number of clusters (may shrink due to pruning).
+    hp : dict
+        Hyperparameters.
+    degree : int, optional
+        Total polynomial degree for the monomial lift (default 2).
+    n_iter : int, optional
+        Maximum EM iterations per restart (default 100).
+    tol : float, optional
+        ELBO convergence tolerance (default 1e-4).
+    n_restarts : int, optional
+        Number of random restarts; best ELBO wins (default 3).
+    verbose : bool, optional
+        Print progress every 10 iterations (default True).
+
+    Returns
+    -------
+    best_state : dict
+        EM state from the best restart.
+    best_r : torch.Tensor, shape (P, N_active)
+        Final responsibilities from the best restart.
+    best_history : list of float
+        ELBO history from the best restart.
     """
     orig_device = X.device
     orig_dtype = X.dtype
@@ -406,6 +702,22 @@ def fit(X, X_next, N, hp, degree=2,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def fit_global(X, X_next, degree=2):
+    """Fit a single global discrete Koopman operator (N=1 baseline).
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    X_next : torch.Tensor, shape (P, d)
+        Next states.
+    degree : int, optional
+        Total polynomial degree for the monomial lift (default 2).
+
+    Returns
+    -------
+    dict
+        Model with keys ``K`` (M, M), ``c`` (d,), ``exps``, ``d``.
+    """
     d = X.shape[1]
     exps = monomial_exponents(d, degree)
     c = X.mean(dim=0)
@@ -415,6 +727,20 @@ def fit_global(X, X_next, degree=2):
 
 
 def predict_next_global(X, model):
+    """Predict x_{t+1} using the global discrete Koopman operator.
+
+    Parameters
+    ----------
+    X : torch.Tensor, shape (P, d)
+        Current states.
+    model : dict
+        Model returned by ``fit_global``.
+
+    Returns
+    -------
+    torch.Tensor, shape (P, d)
+        Predicted next states.
+    """
     d = model['d']
     U = X - model['c']
     Phi = monomials(U, model['exps'])
