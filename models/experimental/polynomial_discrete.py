@@ -2,7 +2,8 @@
 Discrete EDMD local model implemented as a LocalModel.
 
 Fits a discrete Koopman operator K via SVD-based least squares on
-polynomial-lifted features. Prediction: X_next = center + [K @ Phi(X - center)]_{1:d}.
+polynomial-lifted features. Supports full multivariate monomials
+or diagonal (univariate-only) monomials.
 """
 
 from __future__ import annotations
@@ -10,15 +11,24 @@ from typing import Any
 
 import torch
 
-from ..em_local_edmd import monomial_exponents, monomials
+from ..em_local_edmd import make_exponents, monomials, ObservableType
 from ..em_local_edmd_discrete_gpu import _lstsq_svd
 
 
 class PolynomialDiscreteEDMD:
-    """Discrete EDMD local model using polynomial lifting."""
+    """Discrete EDMD local model using polynomial lifting.
 
-    def __init__(self, degree: int = 2, rcond: float = 1e-10):
+    Args:
+        degree: Maximum polynomial degree.
+        observable_type: ObservableType enum or string ('full', 'diagonal').
+        rcond: Cutoff for SVD pseudoinverse.
+    """
+
+    def __init__(self, degree: int = 2,
+                 observable_type: ObservableType | str = ObservableType.FULL,
+                 rcond: float = 1e-10):
         self.degree = degree
+        self.observable_type = ObservableType(observable_type) if isinstance(observable_type, str) else observable_type
         self.rcond = rcond
         self._K: torch.Tensor | None = None
         self._exps: list | None = None
@@ -28,13 +38,12 @@ class PolynomialDiscreteEDMD:
     def min_points(self) -> int:
         if self._exps is not None:
             return len(self._exps)
-        # Can't know exactly without d, return conservative estimate
         return 1
 
     def _ensure_exps(self, d: int):
         if self._exps is None or self._d != d:
             self._d = d
-            self._exps = monomial_exponents(d, self.degree)
+            self._exps = make_exponents(d, self.degree, self.observable_type)
 
     def fit(self, X: torch.Tensor, Y: torch.Tensor,
             weights: torch.Tensor, center: torch.Tensor) -> None:
@@ -64,6 +73,7 @@ class PolynomialDiscreteEDMD:
             'exps': self._exps,
             'd': self._d,
             'degree': self.degree,
+            'observable_type': self.observable_type.value,
             'rcond': self.rcond,
         }
 
@@ -73,7 +83,11 @@ class PolynomialDiscreteEDMD:
         self._d = state['d']
 
     def clone(self) -> PolynomialDiscreteEDMD:
-        return PolynomialDiscreteEDMD(degree=self.degree, rcond=self.rcond)
+        return PolynomialDiscreteEDMD(
+            degree=self.degree,
+            observable_type=self.observable_type,
+            rcond=self.rcond,
+        )
 
     def fallback_init(self, d: int, device: torch.device, dtype: torch.dtype) -> None:
         self._ensure_exps(d)

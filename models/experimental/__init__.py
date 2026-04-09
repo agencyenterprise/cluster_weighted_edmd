@@ -11,6 +11,7 @@ Usage:
 """
 
 from .local_model import LocalModel
+from ..em_local_edmd import ObservableType
 from .polynomial_discrete import PolynomialDiscreteEDMD
 from .polynomial_continuous import PolynomialContinuousEDMD
 from .neural_net import NeuralNetModel
@@ -19,6 +20,7 @@ from . import generic_em
 
 __all__ = [
     "LocalModel",
+    "ObservableType",
     "PolynomialDiscreteEDMD",
     "PolynomialContinuousEDMD",
     "NeuralNetModel",

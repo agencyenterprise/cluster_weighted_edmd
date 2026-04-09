@@ -16,6 +16,7 @@ is computed against local EDMD predictions instead of affine ones, and the
 M-step fits M_k by weighted continuous EDMD per cluster.
 """
 
+from enum import Enum
 from itertools import combinations_with_replacement
 
 import numpy as np
@@ -24,6 +25,12 @@ from sklearn.mixture import GaussianMixture
 
 from .distributions import mvn_logpdf_batch
 from .elbo import check_monotone
+
+
+class ObservableType(Enum):
+    """Type of observable basis for EDMD lifting."""
+    FULL = "full"              # All multivariate monomials (cross terms included)
+    DIAGONAL = "diagonal"      # Only univariate terms: x_i^k, no cross terms
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -45,6 +52,32 @@ def monomial_exponents(d: int, degree: int) -> list:
                 exp[i] += 1
             exps.append(tuple(exp))
     return exps
+
+
+def diagonal_monomial_exponents(d: int, degree: int) -> list:
+    """
+    Univariate monomial exponents up to degree `degree` — no cross terms.
+    For d=3, degree=2 → 7 monomials: (000), (100), (010), (001), (200), (020), (002).
+    Count: 1 + d*degree.
+    """
+    exps = [tuple([0] * d)]  # constant term
+    for p in range(1, degree + 1):
+        for i in range(d):
+            exp = [0] * d
+            exp[i] = p
+            exps.append(tuple(exp))
+    return exps
+
+
+def make_exponents(d: int, degree: int,
+                   observable_type: ObservableType = ObservableType.FULL) -> list:
+    """Factory for monomial exponents based on observable type."""
+    if observable_type == ObservableType.FULL:
+        return monomial_exponents(d, degree)
+    elif observable_type == ObservableType.DIAGONAL:
+        return diagonal_monomial_exponents(d, degree)
+    else:
+        raise ValueError(f"Unknown observable type: {observable_type}")
 
 
 def monomials(U: torch.Tensor, exps: list) -> torch.Tensor:
