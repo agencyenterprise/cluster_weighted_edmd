@@ -12,7 +12,7 @@ from typing import Any
 import torch
 
 from ..em_local_edmd import make_exponents, monomials, ObservableType
-from ..em_local_edmd_discrete_gpu import _koopman_svd
+from ..em_local_edmd_discrete_gpu import _lstsq_svd
 
 
 class PolynomialDiscreteEDMD:
@@ -59,7 +59,7 @@ class PolynomialDiscreteEDMD:
         A = Phi_curr * sqrt_w
         B = Phi_next * sqrt_w
 
-        self._K = _koopman_svd(A, B)
+        self._K = _lstsq_svd(A, B).T
 
     def predict(self, X: torch.Tensor, center: torch.Tensor) -> torch.Tensor:
         U = X - center

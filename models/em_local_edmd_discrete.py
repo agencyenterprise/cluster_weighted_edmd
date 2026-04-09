@@ -25,28 +25,6 @@ from .em_local_edmd import monomial_exponents, monomials
 # Discrete EDMD fit
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _koopman_svd(A, B):
-    """Koopman operator via SVD projection.
-
-    Given row-wise data A (samples x features) and B (samples x features),
-    computes K such that B.T ≈ K @ A.T in the SVD basis of A.T.
-
-    K = U' @ B.T @ V @ diag(1/s)  where SVD(A.T) = U S V'
-
-    This is the standard DMD/EDMD formula (Schmid 2010, Tu et al. 2014).
-    Near-zero singular values are clamped to avoid noise amplification.
-    """
-    rows, cols = A.T.shape
-    U, S, Vh = torch.linalg.svd(A.T, full_matrices=False)
-    rank = min(rows, cols)
-    U_r = U[:, :rank]
-    S_r = S[:rank]
-    V_r = Vh[:rank, :].conj().T
-    rcond = max(rows, cols) * torch.finfo(S.dtype).eps
-    S_inv = torch.where(S_r > S_r[0] * rcond, 1.0 / S_r, torch.zeros_like(S_r))
-    return U_r.conj().T @ B.T @ V_r @ torch.diag(S_inv)
-
-
 def weighted_discrete_edmd(
     X:      torch.Tensor,   # (P, d) current states
     X_next: torch.Tensor,   # (P, d) next states
@@ -57,20 +35,24 @@ def weighted_discrete_edmd(
     """
     Fit K_k minimizing  Σ_i r_i ‖Φ(x_{i+1} - c_k) - K_k · Φ(x_i - c_k)‖²
 
-    Uses SVD-based Koopman projection (matching pykoopman's EDMD).
+    Uses weighted pseudoinverse (lstsq) — no ridge regularization.
 
     Returns K_k of shape (M, M).
     """
-    U_curr = X - c_k
-    U_next = X_next - c_k
-    Phi_curr = monomials(U_curr, exps)
-    Phi_next = monomials(U_next, exps)
+    U_curr = X - c_k                                        # (P, d)
+    U_next = X_next - c_k                                   # (P, d)
+    Phi_curr = monomials(U_curr, exps)                      # (P, M)
+    Phi_next = monomials(U_next, exps)                      # (P, M)
 
-    sqrt_w = torch.sqrt(r_k).unsqueeze(1)
-    A = Phi_curr * sqrt_w
-    B = Phi_next * sqrt_w
+    # Apply sqrt(weights) to both sides for weighted lstsq
+    sqrt_w = torch.sqrt(r_k).unsqueeze(1)                   # (P, 1)
+    A = Phi_curr * sqrt_w                                    # (P, M)
+    B = Phi_next * sqrt_w                                    # (P, M)
 
-    return _koopman_svd(A, B)
+    # lstsq solves A @ X = B, giving X = K^T (since Phi_next = Phi_curr @ K^T)
+    result = torch.linalg.lstsq(A, B)
+    K_k = result.solution.T                                  # (M, M) — transpose!
+    return K_k
 
 
 # ─────────────────────────────────────────────────────────────────────────────
