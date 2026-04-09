@@ -6,9 +6,12 @@ or any model satisfying the LocalModel protocol. Device/dtype aware
 (CPU, CUDA, MPS).
 """
 
+import time
+
 import numpy as np
 import torch
 from sklearn.mixture import GaussianMixture
+from tqdm import tqdm
 
 from ..distributions_gpu import mvn_logpdf_batch, dirichlet_logpdf, niw_logpdf
 from .local_model import LocalModel
@@ -321,28 +324,42 @@ def fit(X, Y, N, hp, model_prototype,
         if verbose:
             print(f"\n  Restart {restart + 1}/{n_restarts}  (generic EM)")
 
+        t_start = time.time()
         state = initialize(X_em, Y_em, N, hp_em, model_prototype,
                            seed=restart * 17)
-        history = []
+        if verbose:
+            print(f"    Initialized in {time.time() - t_start:.1f}s | N_active = {state['N']}")
 
-        for t in range(n_iter):
+        history = []
+        pbar = tqdm(range(n_iter), desc=f"    Restart {restart+1}/{n_restarts}",
+                    disable=not verbose, leave=True)
+
+        for t in pbar:
             r = e_step(X_em, Y_em, state, hp_em)
             state, r = prune_dead(state, r, X_em, Y_em, hp_em)
             if state['N'] == 0:
+                pbar.set_postfix_str("all clusters pruned")
                 break
 
             elbo_val = compute_elbo(X_em, Y_em, r, state, hp_em).item()
             history.append(elbo_val)
 
-            if verbose and t % 10 == 0:
-                print(f"    iter {t:3d} | ELBO = {elbo_val:.2f} | N_active = {state['N']}")
+            delta_str = ""
+            if t > 0:
+                delta = history[-1] - history[-2]
+                delta_str = f"dE={delta:+.2f}"
+
+            pbar.set_postfix_str(
+                f"ELBO={elbo_val:.2f} {delta_str} N={state['N']}")
 
             if t > 0 and abs(history[-1] - history[-2]) < tol:
-                if verbose:
-                    print(f"    Converged at iteration {t}")
+                pbar.set_postfix_str(
+                    f"ELBO={elbo_val:.2f} converged N={state['N']}")
                 break
 
             state = m_step(X_em, Y_em, r, state, hp_em)
+
+        pbar.close()
 
         if not check_monotone(history):
             print("  [NOTE] ELBO non-monotone")
@@ -353,6 +370,10 @@ def fit(X, Y, N, hp, model_prototype,
             best_state = state
             best_r = r
             best_history = history
+
+        if verbose and history:
+            total_time = time.time() - t_start
+            print(f"    Done | ELBO={history[-1]:.2f} | {len(history)} iters | {total_time:.1f}s")
 
     # Move results back to original device/dtype
     if best_state is not None and (orig_device != em_device or orig_dtype != torch.float64):
