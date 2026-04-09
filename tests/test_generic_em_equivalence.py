@@ -16,7 +16,6 @@ from residual_aware_clustering.models.em_local_edmd_discrete_gpu import (
     e_step as e_step_ref,
     m_step as m_step_ref,
     initialize as init_ref,
-    _lstsq_svd,
 )
 from residual_aware_clustering.models.em_local_edmd import (
     weighted_continuous_edmd as cont_edmd_ref,

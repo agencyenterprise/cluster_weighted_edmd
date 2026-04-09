@@ -233,10 +233,10 @@ def test_fit_matches(sample_data):
 
     assert len(hist_cpu) == len(hist_gpu)
     for i, (a, b) in enumerate(zip(hist_cpu, hist_gpu)):
-        assert abs(a - b) < 7e-6, f"ELBO diff at iter {i}: {abs(a-b):.2e}"
+        assert abs(a - b) < 1e-8, f"ELBO diff at iter {i}: {abs(a-b):.2e}"
 
     for key in ['centers', 'covariances', 'K_ops', 'pi', 'sigma2']:
-        assert torch.allclose(state_cpu[key], state_gpu[key], atol=7e-6), \
+        assert torch.allclose(state_cpu[key], state_gpu[key], atol=1e-8), \
             f"fit[{key}] max diff: {(state_cpu[key] - state_gpu[key]).abs().max():.2e}"
 
     assert torch.allclose(r_cpu, r_gpu, atol=1e-8)
@@ -279,6 +279,137 @@ def test_fit_on_accelerator():
     assert state_dev['covariances'].device.type == dev.type
     assert state_dev['K_ops'].device.type == dev.type
     assert r_dev.device.type == dev.type
+
+
+# ── Three-way: CPU vs GPU vs pykoopman ───────────────────────────────────────
+
+import pykoopman as pk
+from pykoopman.observables import Polynomial as PkPoly
+from pykoopman.regression import EDMD as PkEDMD
+
+
+@pytest.fixture
+def edmd_data():
+    """Well-conditioned data for EDMD comparison."""
+    rng = np.random.default_rng(42)
+    d, P = 3, 300
+    X = torch.tensor(rng.standard_normal((P, d)), dtype=torch.float64)
+    X_next = X + 0.1 * torch.tensor(rng.standard_normal((P, d)), dtype=torch.float64)
+    return X, X_next, d
+
+
+def test_cpu_edmd_matches_pykoopman(edmd_data):
+    """CPU weighted_discrete_edmd matches pykoopman EDMD on same data."""
+    X, X_next, d = edmd_data
+    exps = monomial_exponents(d, 2)
+    c = torch.zeros(d, dtype=torch.float64)
+    r = torch.ones(X.shape[0], dtype=torch.float64)
+
+    # Our CPU
+    K_cpu = edmd_cpu(X, X_next, r, c, exps)
+
+    # pykoopman: lift with same polynomial, fit EDMD
+    pk_model = pk.Koopman(observables=PkPoly(degree=2), regressor=PkEDMD())
+    pk_model.fit(X.numpy(), y=X_next.numpy(), dt=1)
+    K_pk = pk_model._pipeline.named_steps['regressor'].coef_
+
+    assert K_cpu.shape == K_pk.shape, \
+        f"Shape mismatch: cpu={K_cpu.shape}, pk={K_pk.shape}"
+    assert torch.allclose(K_cpu, torch.tensor(K_pk), atol=1e-8), \
+        f"CPU vs pykoopman max diff: {(K_cpu - torch.tensor(K_pk)).abs().max():.2e}"
+
+
+def test_gpu_edmd_matches_pykoopman(edmd_data):
+    """GPU weighted_discrete_edmd matches pykoopman EDMD on same data."""
+    X, X_next, d = edmd_data
+    exps = monomial_exponents(d, 2)
+    c = torch.zeros(d, dtype=torch.float64)
+    r = torch.ones(X.shape[0], dtype=torch.float64)
+
+    # Our GPU
+    K_gpu = edmd_gpu(X, X_next, r, c, exps)
+
+    # pykoopman
+    pk_model = pk.Koopman(observables=PkPoly(degree=2), regressor=PkEDMD())
+    pk_model.fit(X.numpy(), y=X_next.numpy(), dt=1)
+    K_pk = pk_model._pipeline.named_steps['regressor'].coef_
+
+    assert K_gpu.shape == K_pk.shape, \
+        f"Shape mismatch: gpu={K_gpu.shape}, pk={K_pk.shape}"
+    assert torch.allclose(K_gpu, torch.tensor(K_pk), atol=1e-8), \
+        f"GPU vs pykoopman max diff: {(K_gpu - torch.tensor(K_pk)).abs().max():.2e}"
+
+
+def test_cpu_gpu_pykoopman_three_way(edmd_data):
+    """All three implementations produce identical K on the same data."""
+    X, X_next, d = edmd_data
+    exps = monomial_exponents(d, 2)
+    c = torch.zeros(d, dtype=torch.float64)
+    r = torch.ones(X.shape[0], dtype=torch.float64)
+
+    K_cpu = edmd_cpu(X, X_next, r, c, exps)
+    K_gpu = edmd_gpu(X, X_next, r, c, exps)
+
+    pk_model = pk.Koopman(observables=PkPoly(degree=2), regressor=PkEDMD())
+    pk_model.fit(X.numpy(), y=X_next.numpy(), dt=1)
+    K_pk = torch.tensor(pk_model._pipeline.named_steps['regressor'].coef_)
+
+    # CPU == GPU
+    assert torch.allclose(K_cpu, K_gpu, atol=1e-10), \
+        f"CPU vs GPU max diff: {(K_cpu - K_gpu).abs().max():.2e}"
+
+    # CPU == pykoopman
+    assert torch.allclose(K_cpu, K_pk, atol=1e-8), \
+        f"CPU vs pykoopman max diff: {(K_cpu - K_pk).abs().max():.2e}"
+
+    # GPU == pykoopman
+    assert torch.allclose(K_gpu, K_pk, atol=1e-8), \
+        f"GPU vs pykoopman max diff: {(K_gpu - K_pk).abs().max():.2e}"
+
+
+def test_cpu_gpu_pykoopman_predictions(edmd_data):
+    """All three produce identical predictions."""
+    X, X_next, d = edmd_data
+    exps = monomial_exponents(d, 2)
+    c = torch.zeros(d, dtype=torch.float64)
+    r = torch.ones(X.shape[0], dtype=torch.float64)
+
+    K_cpu = edmd_cpu(X, X_next, r, c, exps)
+    K_gpu = edmd_gpu(X, X_next, r, c, exps)
+
+    # Predictions via our code
+    pred_cpu = predict_cpu(X, c.unsqueeze(0), K_cpu.unsqueeze(0), exps, d)[:, 0, :]
+    pred_gpu = predict_gpu(X, c.unsqueeze(0), K_gpu.unsqueeze(0), exps, d)[:, 0, :]
+
+    # pykoopman predictions
+    pk_model = pk.Koopman(observables=PkPoly(degree=2), regressor=PkEDMD())
+    pk_model.fit(X.numpy(), y=X_next.numpy(), dt=1)
+    K_pk = pk_model._pipeline.named_steps['regressor'].coef_
+    poly = PkPoly(degree=2); poly.fit(X.numpy())
+    Phi_X = poly.transform(X.numpy())
+    pk_pred_full = Phi_X @ K_pk.T
+    pk_pred = torch.tensor(pk_pred_full[:, 1:d + 1])
+
+    assert torch.allclose(pred_cpu, pred_gpu, atol=1e-10), \
+        f"CPU vs GPU pred max diff: {(pred_cpu - pred_gpu).abs().max():.2e}"
+    assert torch.allclose(pred_cpu, pk_pred, atol=1e-8), \
+        f"CPU vs pykoopman pred max diff: {(pred_cpu - pk_pred).abs().max():.2e}"
+
+
+def test_cpu_gpu_pykoopman_weighted(edmd_data):
+    """Three-way match with non-uniform weights."""
+    X, X_next, d = edmd_data
+    exps = monomial_exponents(d, 1)
+    c = torch.zeros(d, dtype=torch.float64)
+
+    rng = np.random.default_rng(99)
+    r = torch.tensor(rng.random(X.shape[0]), dtype=torch.float64)
+
+    K_cpu = edmd_cpu(X, X_next, r, c, exps)
+    K_gpu = edmd_gpu(X, X_next, r, c, exps)
+
+    assert torch.allclose(K_cpu, K_gpu, atol=1e-10), \
+        f"CPU vs GPU weighted max diff: {(K_cpu - K_gpu).abs().max():.2e}"
 
 
 if __name__ == "__main__":

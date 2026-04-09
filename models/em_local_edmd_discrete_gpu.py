@@ -19,18 +19,70 @@ from .em_local_edmd import monomial_exponents, monomials
 # Discrete EDMD fit
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _lstsq_svd(A, B, rcond=1e-10):
-    """SVD-based least squares: solves A @ X = B via truncated pseudoinverse.
+def _svht(sigma, rows, cols):
+    """Singular Value Hard Threshold (Gavish & Donoho, 2014).
 
-    Equivalent to gelsd: uses SVD, thresholds small singular values.
-    Works reliably on CPU, CUDA, and MPS.
+    Computes the optimal rank truncation for SVD.
+    Ported from pydmd to work with torch tensors on any device.
     """
-    U, S, Vh = torch.linalg.svd(A, full_matrices=False)
-    # Threshold: ignore singular values below rcond * max(S)
-    cutoff = rcond * S[0]
-    S_inv = torch.where(S > cutoff, 1.0 / S, torch.zeros_like(S))
-    # pseudoinverse solution: V @ diag(1/s) @ U^T @ B
-    return Vh.T @ (S_inv.unsqueeze(1) * (U.T @ B))
+    beta = min(rows, cols) / max(rows, cols)
+    omega = 0.56 * beta**3 - 0.95 * beta**2 + 1.82 * beta + 1.43
+    if isinstance(sigma, torch.Tensor):
+        tau = sigma.median().item() * omega
+        rank = int((sigma > tau).sum().item())
+    else:
+        import numpy as np
+        tau = np.median(sigma) * omega
+        rank = int(np.sum(sigma > tau))
+    return max(rank, 1)
+
+
+def _koopman_svd(A, B, svd_rank=-1):
+    """Koopman operator via SVD projection.
+
+    Given row-wise data A (samples x features) and B (samples x features),
+    computes K such that B.T ≈ K @ A.T in the truncated SVD basis of A.T.
+
+    K = U_r' @ B.T @ V_r @ diag(1/s_r)
+
+    where SVD(A.T) = U S V' truncated to rank r.
+
+    This matches pykoopman/pydmd's EDMD computation exactly.
+    Works on CPU, CUDA, and MPS.
+
+    Args:
+        A: (P, M) input data (rows = samples, cols = features)
+        B: (P, M) output data
+        svd_rank: Rank truncation.
+            0 = auto (optimal hard threshold, Gavish & Donoho 2014)
+            -1 = no truncation (use all singular values)
+            int > 0 = use exactly this rank
+            float in (0, 1) = energy threshold
+    """
+    rows, cols = A.T.shape  # features x samples
+    U, S, Vh = torch.linalg.svd(A.T, full_matrices=False)
+
+    # Compute rank
+    if svd_rank == 0:
+        rank = _svht(S, rows, cols)
+    elif svd_rank == -1:
+        rank = min(rows, cols)
+    elif 0 < svd_rank < 1:
+        cumulative = torch.cumsum(S**2, dim=0) / (S**2).sum()
+        rank = int((cumulative < svd_rank).sum().item()) + 1
+    else:
+        rank = min(int(svd_rank), S.shape[0])
+
+    # Truncate
+    U_r = U[:, :rank]
+    S_r = S[:rank]
+    V_r = Vh[:rank, :].conj().T  # (samples, rank)
+
+    # K = U_r' @ B.T @ V_r @ diag(1/s_r)
+    # Clamp near-zero singular values to avoid noise amplification
+    rcond = max(rows, cols) * torch.finfo(S.dtype).eps
+    S_inv = torch.where(S_r > S_r[0] * rcond, 1.0 / S_r, torch.zeros_like(S_r))
+    return U_r.conj().T @ B.T @ V_r @ torch.diag(S_inv)
 
 
 def weighted_discrete_edmd(X, X_next, r_k, c_k, exps):
@@ -43,7 +95,7 @@ def weighted_discrete_edmd(X, X_next, r_k, c_k, exps):
     A = Phi_curr * sqrt_w
     B = Phi_next * sqrt_w
 
-    return _lstsq_svd(A, B).T
+    return _koopman_svd(A, B)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
