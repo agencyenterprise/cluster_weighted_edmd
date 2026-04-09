@@ -184,7 +184,7 @@ def prune_dead(state, r, X, Y, hp, threshold=1.0, min_N=2):
 # Initialization
 # ─────────────────────────────────────────────────────────────────────────────
 
-def initialize(X, Y, N, hp, model_prototype, seed=42):
+def initialize(X, Y, N, hp, model_prototype, seed=42, max_gmm_samples=10000):
     P, d = X.shape
     dev = X.device
     dt = X.dtype
@@ -193,7 +193,14 @@ def initialize(X, Y, N, hp, model_prototype, seed=42):
     gmm = GaussianMixture(n_components=N, covariance_type='full',
                           n_init=5, random_state=seed)
     X_np = X.detach().cpu().to(torch.float64).numpy()
-    gmm.fit(X_np)
+
+    # Subsample for GMM fitting if dataset is large (GMM is O(N*K*d^2))
+    if max_gmm_samples and X_np.shape[0] > max_gmm_samples:
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(X_np.shape[0], max_gmm_samples, replace=False)
+        gmm.fit(X_np[idx])
+    else:
+        gmm.fit(X_np)
     labels = gmm.predict(X_np)
 
     # Handle fewer clusters than requested
@@ -285,7 +292,7 @@ def _models_to_device_dtype(models, device, dtype):
 
 
 def fit(X, Y, N, hp, model_prototype,
-        n_iter=100, tol=1e-4, n_restarts=3, verbose=True):
+        n_iter=100, tol=1e-4, n_restarts=3, max_gmm_samples=10000, verbose=True):
     """
     Generic EM fit with any LocalModel.
 
@@ -327,7 +334,7 @@ def fit(X, Y, N, hp, model_prototype,
 
         t_start = time.time()
         state = initialize(X_em, Y_em, N, hp_em, model_prototype,
-                           seed=restart * 17)
+                           seed=restart * 17, max_gmm_samples=max_gmm_samples)
         if verbose:
             print(f"    Initialized in {time.time() - t_start:.1f}s | N_active = {state['N']}", flush=True)
 
