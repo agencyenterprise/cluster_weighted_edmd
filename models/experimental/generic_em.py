@@ -322,13 +322,14 @@ def fit(X, Y, N, hp, model_prototype,
 
     for restart in range(n_restarts):
         if verbose:
-            print(f"\n  Restart {restart + 1}/{n_restarts}  (generic EM)")
+            print(f"\n  Restart {restart + 1}/{n_restarts}  (generic EM)", flush=True)
+            print(f"    Initializing (GMM on {X_em.shape[0]} points, d={X_em.shape[1]})...", flush=True)
 
         t_start = time.time()
         state = initialize(X_em, Y_em, N, hp_em, model_prototype,
                            seed=restart * 17)
         if verbose:
-            print(f"    Initialized in {time.time() - t_start:.1f}s | N_active = {state['N']}")
+            print(f"    Initialized in {time.time() - t_start:.1f}s | N_active = {state['N']}", flush=True)
 
         history = []
         pbar = tqdm(range(n_iter), desc=f"    Restart {restart+1}/{n_restarts}",
