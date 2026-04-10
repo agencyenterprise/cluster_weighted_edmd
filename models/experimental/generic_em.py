@@ -114,11 +114,18 @@ def predict_all(X, centers, models, d):
 
 
 def residual_logpdf(X, Y, centers, models, sigma2, d):
-    """Log p(eps_k(x_i) | 0, sigma2_k * I) for all i, k. Returns (P, N)."""
-    Y_pred = predict_all(X, centers, models, d)
-    eps = Y.unsqueeze(1) - Y_pred
-    sq_norm = (eps ** 2).sum(dim=2)
+    """Log p(eps_k(x_i) | 0, sigma2_k * I) for all i, k. Returns (P, N).
+
+    Streams over clusters to avoid materializing the full (P, N, d) prediction
+    tensor — important when N is large (e.g. 1000+ clusters).
+    """
+    P = X.shape[0]
     N = len(models)
+    sq_norm = torch.zeros(P, N, dtype=X.dtype, device=X.device)
+    for k in range(N):
+        eps_k = Y - models[k].predict(X, centers[k])
+        sq_norm[:, k] = (eps_k ** 2).sum(dim=1)
+
     if isinstance(sigma2, (int, float)):
         s2 = torch.full((N,), float(sigma2), dtype=X.dtype, device=X.device)
     else:
@@ -231,12 +238,11 @@ def m_step(X, Y, r, state, hp):
     pi_new = torch.clamp(pi_new, min=1e-10)
     pi_new = pi_new / pi_new.sum()
 
-    # Per-cluster sigma2
+    # Per-cluster sigma2 (streamed to avoid materializing (P, N, d))
     if state.get('learn_sigma2', True):
-        Y_pred = predict_all(X, centers_new, models, d)
         sigma2_new = torch.zeros(N, dtype=dt, device=dev)
         for k in range(N):
-            eps_k = Y - Y_pred[:, k]
+            eps_k = Y - models[k].predict(X, centers_new[k])
             sq = (eps_k ** 2).sum(dim=1)
             sigma2_new[k] = max((r[:, k] * sq).sum().item() / (d * R[k].item()), 1e-6)
     else:
@@ -446,15 +452,16 @@ def initialize(X, Y, N, hp, model_prototype, seed=42, max_gmm_samples=10000):
             model_k.fit(X, Y, r_k, centers[k])
         models.append(model_k)
 
-    # Calibrate sigma2
+    # Calibrate sigma2 (streamed to avoid materializing (P, N, d))
     if hp.get('sigma2', 'auto') == 'auto':
-        Y_pred = predict_all(X, centers, models, d)
         sigma2 = torch.full((N,), 1e-6, dtype=dt, device=dev)
         for k in range(N):
             mask = labels == k
             if mask.sum() == 0:
                 continue
-            eps_k = Y[mask] - Y_pred[mask, k]
+            X_k = X[mask]
+            Y_k = Y[mask]
+            eps_k = Y_k - models[k].predict(X_k, centers[k])
             sq = (eps_k ** 2).sum(dim=1)
             sigma2[k] = max(sq.median().item() / d, 1e-6)
         print(f"    sigma2 calibrated per cluster: mean={sigma2.mean().item():.6f}, "
