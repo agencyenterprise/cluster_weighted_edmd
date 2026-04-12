@@ -391,5 +391,113 @@ def test_full_pipeline_continuous_matches(continuous_data):
         f"fit[M_ops] max diff: {(M_ref - M_gen).abs().max():.2e}"
 
 
+# ── Sparse E-step tests ─────────────────────────────────────────────────────
+
+@pytest.fixture
+def sparse_data():
+    """Larger dataset with well-separated clusters for sparse testing."""
+    rng = np.random.default_rng(123)
+    d, P = 4, 500
+    N = 5
+    # Create well-separated cluster centers
+    centers = torch.tensor(rng.standard_normal((N, d)) * 5, dtype=torch.float64)
+    # Generate points near each center
+    labels = rng.integers(0, N, size=P)
+    X = centers[labels] + torch.tensor(rng.standard_normal((P, d)) * 0.5,
+                                        dtype=torch.float64)
+    X_next = X + 0.1 * torch.tensor(rng.standard_normal((P, d)),
+                                     dtype=torch.float64)
+    return X, X_next, d, P, N
+
+
+@pytest.fixture
+def sparse_state(sparse_data):
+    """Fitted generic EM state for sparse tests."""
+    X, X_next, d, P, N = sparse_data
+    hp = make_hp(X, d=d)
+    model_proto = PolynomialDiscreteEDMD(degree=1)
+    state = init_generic(X, X_next, N=N, hp=hp, model_prototype=model_proto,
+                         seed=42, max_gmm_samples=500)
+    return state
+
+
+def test_sparse_residual_logpdf_matches_full(sparse_data, sparse_state):
+    """Sparse residual_logpdf with top_k=N should exactly match full."""
+    X, X_next, d, P, N = sparse_data
+    state = sparse_state
+
+    from residual_aware_clustering.models.distributions import mvn_logpdf_batch
+    log_prox = mvn_logpdf_batch(X, state['centers'], state['covariances'])
+
+    # Full mode
+    log_resid_full = residual_logpdf(
+        X, X_next, state['centers'], state['models'], state['sigma2'], d)
+
+    # Sparse with top_k = N (should be identical)
+    log_resid_sparse = residual_logpdf(
+        X, X_next, state['centers'], state['models'], state['sigma2'], d,
+        log_prox=log_prox, sparse_top_k=N)
+
+    assert torch.allclose(log_resid_full, log_resid_sparse, atol=1e-12), \
+        f"Max diff: {(log_resid_full - log_resid_sparse).abs().max():.2e}"
+
+
+def test_sparse_e_step_assignments_match(sparse_data, sparse_state):
+    """Sparse E-step assignments should match full for well-separated clusters."""
+    X, X_next, d, P, N = sparse_data
+    state = sparse_state
+
+    hp_full = make_hp(X, d=d)
+    hp_sparse = make_hp(X, d=d)
+    hp_sparse['sparse_top_k'] = 3
+
+    r_full = e_step_generic(X, X_next, state, hp_full)
+    r_sparse = e_step_generic(X, X_next, state, hp_sparse)
+
+    # Hard assignments should match for well-separated data
+    assign_full = r_full.argmax(dim=1)
+    assign_sparse = r_sparse.argmax(dim=1)
+    match_rate = (assign_full == assign_sparse).float().mean().item()
+
+    assert match_rate > 0.99, \
+        f"Assignment match rate: {match_rate:.4f} (expected >0.99)"
+
+
+def test_sparse_top_k_equals_N_is_exact(sparse_data, sparse_state):
+    """top_k=N should give numerically identical responsibilities as full."""
+    X, X_next, d, P, N = sparse_data
+    state = sparse_state
+
+    hp_full = make_hp(X, d=d)
+    hp_sparse = make_hp(X, d=d)
+    hp_sparse['sparse_top_k'] = N
+
+    r_full = e_step_generic(X, X_next, state, hp_full)
+    r_sparse = e_step_generic(X, X_next, state, hp_sparse)
+
+    assert torch.allclose(r_full, r_sparse, atol=1e-12), \
+        f"Max diff: {(r_full - r_sparse).abs().max():.2e}"
+
+
+def test_sparse_fit_converges(sparse_data):
+    """Sparse EM should converge (ELBO increases)."""
+    X, X_next, d, P, N = sparse_data
+    hp = make_hp(X, d=d)
+    hp['sparse_top_k'] = 3
+
+    model_proto = PolynomialDiscreteEDMD(degree=1)
+    state, r, elbos = generic_fit(
+        X, X_next, N=N, hp=hp, model_prototype=model_proto,
+        n_iter=20, n_restarts=1, verbose=False)
+
+    assert elbos is not None, "fit returned None history"
+    assert len(elbos) > 0
+    assert state['N'] > 0
+    # ELBO should generally increase (allow small dips from sparse approximation)
+    if len(elbos) > 5:
+        assert elbos[-1] > elbos[2], \
+            f"ELBO did not increase: {elbos[2]:.2f} → {elbos[-1]:.2f}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

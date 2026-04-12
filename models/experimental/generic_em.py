@@ -113,24 +113,66 @@ def predict_all(X, centers, models, d):
     return Y_pred
 
 
-def residual_logpdf(X, Y, centers, models, sigma2, d):
+def residual_logpdf(X, Y, centers, models, sigma2, d,
+                    log_prox=None, sparse_top_k=None):
     """Log p(eps_k(x_i) | 0, sigma2_k * I) for all i, k. Returns (P, N).
 
     Streams over clusters to avoid materializing the full (P, N, d) prediction
     tensor — important when N is large (e.g. 1000+ clusters).
+
+    Parameters
+    ----------
+    X, Y : torch.Tensor
+        Input/target states, shape ``(P, d)``.
+    centers : torch.Tensor
+        Cluster centers, shape ``(N, d)``.
+    models : list of LocalModel
+        One per cluster.
+    sigma2 : torch.Tensor or float
+        Per-cluster residual variance.
+    d : int
+        State dimension.
+    log_prox : torch.Tensor or None
+        Pre-computed proximity log-likelihoods, shape ``(P, N)``. Required
+        when ``sparse_top_k`` is set.
+    sparse_top_k : int or None
+        If set, only compute predictions for the top-K clusters per point
+        (ranked by proximity). Remaining clusters get ``-inf`` log-likelihood.
+        Gives ~N/K speedup on the prediction loop.
     """
     P = X.shape[0]
     N = len(models)
-    sq_norm = torch.zeros(P, N, dtype=X.dtype, device=X.device)
-    for k in range(N):
-        eps_k = Y - models[k].predict(X, centers[k])
-        sq_norm[:, k] = (eps_k ** 2).sum(dim=1)
 
     if isinstance(sigma2, (int, float)):
         s2 = torch.full((N,), float(sigma2), dtype=X.dtype, device=X.device)
     else:
         s2 = sigma2
     log_norm = -(d / 2.0) * torch.log(2.0 * torch.pi * s2).unsqueeze(0)
+
+    if sparse_top_k is not None and sparse_top_k < N and log_prox is not None:
+        # Sparse mode: only predict for top-K clusters per point
+        K = sparse_top_k
+
+        # Initialize to a large finite value so log-likelihood is very
+        # negative for skipped clusters, but avoids inf * 0 = NaN in ELBO.
+        sq_norm = torch.full((P, N), 1e30, dtype=X.dtype, device=X.device)
+
+        # Top-K cluster indices per point by proximity
+        _, topk_idx = log_prox.topk(K, dim=1)  # (P, K)
+
+        # Build per-cluster masks: which points need prediction from cluster k
+        for k in range(N):
+            mask = (topk_idx == k).any(dim=1)  # (P,) bool
+            if mask.any():
+                eps_k = Y[mask] - models[k].predict(X[mask], centers[k])
+                sq_norm[mask, k] = (eps_k ** 2).sum(dim=1)
+    else:
+        # Full mode: predict all clusters for all points
+        sq_norm = torch.zeros(P, N, dtype=X.dtype, device=X.device)
+        for k in range(N):
+            eps_k = Y - models[k].predict(X, centers[k])
+            sq_norm[:, k] = (eps_k ** 2).sum(dim=1)
+
     return log_norm - sq_norm / (2.0 * s2.unsqueeze(0))
 
 
@@ -159,8 +201,10 @@ def e_step(X, Y, state, hp):
         Responsibility matrix of shape ``(P, N)`` where each row sums to 1.
     """
     log_prox = mvn_logpdf_batch(X, state['centers'], state['covariances'])
+    sparse_top_k = hp.get('sparse_top_k')
     log_resid = residual_logpdf(
-        X, Y, state['centers'], state['models'], state['sigma2'], state['d'])
+        X, Y, state['centers'], state['models'], state['sigma2'], state['d'],
+        log_prox=log_prox, sparse_top_k=sparse_top_k)
     log_pi = torch.log(state['pi']).unsqueeze(0)
     log_r_un = log_pi + log_prox + log_resid
     log_r = log_r_un - torch.logsumexp(log_r_un, dim=1, keepdim=True)
@@ -297,8 +341,10 @@ def compute_elbo(X, Y, r, state, hp):
     log_prox = mvn_logpdf_batch(X, state['centers'], state['covariances'])
     term2 = (r * log_prox).sum()
 
+    sparse_top_k = hp.get('sparse_top_k')
     log_resid = residual_logpdf(
-        X, Y, state['centers'], state['models'], state['sigma2'], state['d'])
+        X, Y, state['centers'], state['models'], state['sigma2'], state['d'],
+        log_prox=log_prox, sparse_top_k=sparse_top_k)
     term3 = (r * log_resid).sum()
 
     term4 = -(r * torch.log(r + 1e-300)).sum()
