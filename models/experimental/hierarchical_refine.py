@@ -331,6 +331,44 @@ class HierarchicalState:
             "refined_clusters": self.refined_clusters,
         }
 
+    @classmethod
+    def from_state_dict(cls, saved: dict, parent_state: dict,
+                        model_prototype) -> HierarchicalState:
+        """Reconstruct from a saved state_dict.
+
+        The saved children have 'model_states' (serialized dicts) instead
+        of live 'models'. This method rebuilds them using the prototype.
+
+        Parameters
+        ----------
+        saved : dict
+            Output of ``state_dict()``, with keys 'children', 'refined_clusters'.
+        parent_state : dict
+            The parent CWM state (with live models).
+        model_prototype : LocalModel
+            Template to clone and load child model states into.
+        """
+        children = {}
+        for pk_str, child_dict in saved.get("children", {}).items():
+            pk = int(pk_str) if isinstance(pk_str, str) else pk_str
+            # Rebuild live models from saved states
+            models = []
+            for ms in child_dict["model_states"]:
+                m = model_prototype.clone()
+                m.load_state_dict(ms)
+                models.append(m)
+            child_state = {
+                "centers": child_dict["centers"],
+                "covariances": child_dict["covariances"],
+                "pi": child_dict["pi"],
+                "sigma2": child_dict["sigma2"],
+                "N": child_dict["N"],
+                "d": child_dict["d"],
+                "models": models,
+            }
+            children[pk] = child_state
+        return cls(parent=parent_state, children=children)
+
     def to(self, device, dtype):
         """Move all tensors to device/dtype."""
         for key in ["centers", "covariances", "pi", "sigma2"]:
