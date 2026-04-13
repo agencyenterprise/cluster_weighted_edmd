@@ -499,5 +499,74 @@ def test_sparse_fit_converges(sparse_data):
             f"ELBO did not increase: {elbos[2]:.2f} → {elbos[-1]:.2f}"
 
 
+# ── Hierarchical refinement tests ────────────────────────────────────────────
+
+def test_hierarchical_refine_reduces_sigma2(sparse_data):
+    """Refining a high-sigma cluster should produce children with lower sigma."""
+    X, X_next, d, P, N = sparse_data
+    hp = make_hp(X, d=d)
+    model_proto = PolynomialDiscreteEDMD(degree=1)
+
+    state, r, _ = generic_fit(
+        X, X_next, N=N, hp=hp, model_prototype=model_proto,
+        n_iter=30, n_restarts=1, verbose=False)
+
+    from residual_aware_clustering.models.experimental.hierarchical_refine import (
+        identify_refinement_targets, refine_clusters,
+    )
+
+    # Use a low threshold so at least one cluster qualifies
+    max_sigma = state["sigma2"].max().item()
+    threshold = max_sigma * 0.5
+    targets = identify_refinement_targets(state, sigma2_threshold=threshold)
+
+    if not targets:
+        # All clusters below threshold — skip
+        pytest.skip("No clusters above threshold for this data")
+
+    h_state = refine_clusters(
+        X, X_next, state, r, targets,
+        hp=hp, model_prototype=model_proto,
+        n_subclusters=3, n_iter=20, n_restarts=1, verbose=False)
+
+    assert len(h_state.refined_clusters) > 0
+
+    # Children should have lower sigma on average than parent
+    for pk in h_state.refined_clusters:
+        parent_sigma = state["sigma2"][pk].item()
+        child_sigmas = h_state.children[pk]["sigma2"]
+        child_mean = child_sigmas.mean().item()
+        assert child_mean < parent_sigma, \
+            f"Cluster {pk}: child sigma mean {child_mean:.4f} >= parent {parent_sigma:.4f}"
+
+
+def test_hierarchical_predict_matches_flat_when_no_refinement(sparse_data, sparse_state):
+    """With no refinement, hierarchical predict should match flat predict."""
+    X, X_next, d, P, N = sparse_data
+    state = sparse_state
+
+    from residual_aware_clustering.models.experimental.hierarchical_refine import (
+        HierarchicalState,
+    )
+
+    h_state = HierarchicalState(parent=state, children={})
+
+    z_pred_h, _, _, _ = h_state.predict(X)
+    z_pred_flat = torch.zeros_like(X)
+    for k in range(state["N"]):
+        from residual_aware_clustering.models.distributions import mvn_logpdf_batch
+        log_prox = mvn_logpdf_batch(X, state["centers"], state["covariances"])
+        log_pi = torch.log(state["pi"].clamp(min=1e-30)).unsqueeze(0)
+        assignments = (log_prox + log_pi).argmax(dim=1)
+
+    for k in range(state["N"]):
+        mask = assignments == k
+        if mask.any():
+            z_pred_flat[mask] = state["models"][k].predict(X[mask], state["centers"][k])
+
+    assert torch.allclose(z_pred_h, z_pred_flat, atol=1e-12), \
+        f"Max diff: {(z_pred_h - z_pred_flat).abs().max():.2e}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
