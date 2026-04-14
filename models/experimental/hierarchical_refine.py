@@ -165,10 +165,19 @@ def refine_clusters(X, Y, parent_state, responsibilities, targets,
             child_sigma_mean = child_state["sigma2"].mean().item()
             child_sigma_min = child_state["sigma2"].min().item()
             n_active = child_state["N"]
+
+            # Count points per child cluster
+            child_assignments = child_r.argmax(dim=1)
+            n_points_per_child = torch.zeros(n_active, dtype=torch.long)
+            for ck in range(n_active):
+                n_points_per_child[ck] = (child_assignments == ck).sum().item()
+            child_state["n_points"] = n_points_per_child
+
             if verbose:
                 print(f"    Result: {n_active} subclusters, "
                       f"sigma2 mean={child_sigma_mean:.2f}, "
                       f"min={child_sigma_min:.4f}")
+                print(f"    Points per child: {n_points_per_child.tolist()}")
             children[k] = child_state
 
     return HierarchicalState(parent=parent_state, children=children)
@@ -207,20 +216,25 @@ class HierarchicalState:
             return self.children[parent_k]["sigma2"][child_k].item()
         return self.parent["sigma2"][parent_k].item()
 
-    def assign(self, z):
+    def assign(self, z, empty_threshold: int = 25):
         """Assign a single point or batch to (parent_k, child_k).
 
         Parameters
         ----------
         z : torch.Tensor
             Shape (d,) or (N, d).
+        empty_threshold : int
+            Children with fewer than this many training points are
+            considered empty and skipped during assignment. Points
+            that would go to an empty child get child_k = -1.
 
         Returns
         -------
         parent_k : torch.Tensor
             Parent cluster indices, shape (N,).
-        child_k : torch.Tensor or None
-            Child cluster indices (N,). -1 for unrefined parents.
+        child_k : torch.Tensor
+            Child cluster indices (N,). -1 for unrefined parents
+            or if assigned child is empty.
         sigma2_effective : torch.Tensor
             Effective sigma2 for each point, shape (N,).
         """
@@ -254,20 +268,44 @@ class HierarchicalState:
 
             child_log_prox = mvn_logpdf_batch(z_sub, child_centers, child_covs)
             child_log_pi = torch.log(child_pi.clamp(min=1e-30)).unsqueeze(0)
-            ck = (child_log_prox + child_log_pi).argmax(dim=1)
+            child_scores = child_log_prox + child_log_pi
 
-            child_k[mask] = ck
-            sigma2_eff[mask] = child_state["sigma2"][ck]
+            # Mask out empty children (fewer than empty_threshold training points)
+            n_points = child_state.get("n_points")
+            if n_points is not None:
+                empty_mask = n_points < empty_threshold  # (N_children,)
+                if empty_mask.any():
+                    child_scores[:, empty_mask] = float("-inf")
+
+            ck = child_scores.argmax(dim=1)
+
+            # If all children are empty for a point, ck stays but score is -inf
+            # Mark these as unassigned (child_k = -1)
+            best_scores = child_scores.gather(1, ck.unsqueeze(1)).squeeze(1)
+            valid = best_scores > float("-inf")
+
+            ck_result = torch.full_like(ck, -1)
+            ck_result[valid] = ck[valid]
+
+            child_k[mask] = ck_result
+            # Only update sigma2_eff for validly assigned children
+            valid_global = mask.clone()
+            valid_global[mask] = valid
+            if valid.any():
+                sigma2_eff[valid_global] = child_state["sigma2"][ck[valid]]
 
         return parent_k, child_k, sigma2_eff
 
-    def predict(self, z):
+    def predict(self, z, empty_threshold: int = 25):
         """Predict next state for a batch of points.
 
         Parameters
         ----------
         z : torch.Tensor
             Shape (N, d).
+        empty_threshold : int
+            Children with fewer training points are skipped.
+            Points assigned to empty children fall back to parent model.
 
         Returns
         -------
@@ -276,12 +314,12 @@ class HierarchicalState:
         parent_k : torch.Tensor
             Parent assignments.
         child_k : torch.Tensor
-            Child assignments (-1 if unrefined).
+            Child assignments (-1 if unrefined or empty child).
         sigma2_eff : torch.Tensor
             Effective sigma2 per point.
         """
         N = z.shape[0]
-        parent_k, child_k, sigma2_eff = self.assign(z)
+        parent_k, child_k, sigma2_eff = self.assign(z, empty_threshold)
 
         z_pred = torch.zeros_like(z)
 
@@ -303,11 +341,20 @@ class HierarchicalState:
             ck_sub = child_k[mask]
 
             pred_sub = torch.zeros_like(z_sub)
+
+            # Points with valid child assignment: use child model
             for ck in range(child_state["N"]):
                 cmask = ck_sub == ck
                 if cmask.any():
                     pred_sub[cmask] = child_state["models"][ck].predict(
                         z_sub[cmask], child_state["centers"][ck])
+
+            # Points with child_k = -1 (empty child): fall back to parent
+            no_child = ck_sub == -1
+            if no_child.any():
+                pred_sub[no_child] = self.parent["models"][pk].predict(
+                    z_sub[no_child], self.parent["centers"][pk])
+
             z_pred[mask] = pred_sub
 
         return z_pred, parent_k, child_k, sigma2_eff
@@ -323,6 +370,7 @@ class HierarchicalState:
                 "sigma2": cs["sigma2"],
                 "N": cs["N"],
                 "d": cs["d"],
+                "n_points": cs.get("n_points"),
                 "model_states": [m.state_dict() for m in cs["models"]],
             }
         return {
@@ -361,6 +409,7 @@ class HierarchicalState:
                 "centers": child_dict["centers"],
                 "covariances": child_dict["covariances"],
                 "pi": child_dict["pi"],
+                "n_points": child_dict.get("n_points"),
                 "sigma2": child_dict["sigma2"],
                 "N": child_dict["N"],
                 "d": child_dict["d"],
