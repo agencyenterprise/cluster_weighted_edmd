@@ -1,0 +1,21 @@
+name: pendulum_gaussian
+description: >
+  Gaussian-distributed training data centered at (0, 0) (rest position).
+  Density decays into the rotational regime; tests behavior under non-
+  uniform sampling that emphasizes the small-oscillation linear regime.
+system: pendulum
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: gaussian
+  n_train: 4000
+  n_test:  1000
+  mean:    [0.0, 0.0]
+  sigma:   [1.0, 1.0]
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.05
+  rollout_steps: 200
+  horizons: [1.0, 2.5, 5.0, 10.0]
+methods:
+  N_list:    [2, 4, 8, 16]
+  edmd_degs: [2, 4, 6, 8]

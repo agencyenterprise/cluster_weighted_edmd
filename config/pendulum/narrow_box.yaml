@@ -1,0 +1,21 @@
+name: pendulum_uniform_narrow_box
+description: >
+  Interpolation regime: theta in [-pi/2, pi/2], theta_dot in [-1, 1].
+  Stays well within small-oscillation regime where sin(theta) is nearly
+  linear; baseline EDMD should do well.
+system: pendulum
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: uniform
+  n_train: 4000
+  n_test:  1000
+  box_x:    1.5707963       # pi/2
+  box_xdot: 1.0
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.05
+  rollout_steps: 200
+  horizons: [1.0, 2.5, 5.0, 10.0]
+methods:
+  N_list:    [2, 4, 8, 16]
+  edmd_degs: [2, 4, 6, 8]

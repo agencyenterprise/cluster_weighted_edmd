@@ -1,0 +1,18 @@
+name: lorenz_dt_fast
+description: dt=0.005 (half baseline); reduces Euler-truncation error.
+system: lorenz
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: attractor
+  n_train: 4000
+  n_steps: 5000
+  warmup:  1000
+  dt:      0.005
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.005
+  rollout_steps: 1000         # still 5 s total
+  horizons: [0.5, 1.0, 2.0, 5.0]
+methods:
+  N_list:    [5, 12, 20, 50]
+  edmd_degs: [2, 3]

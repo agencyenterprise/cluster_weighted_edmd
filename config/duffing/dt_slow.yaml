@@ -1,0 +1,26 @@
+name: duffing_dt_slow
+description: >
+  Time-discretization study: larger dt=0.1 (2x baseline). Increases
+  Euler-truncation; tests whether the residual-aware advantage holds
+  under coarse time-stepping. rollout_steps halved to keep total time same.
+system: duffing
+
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+
+data:
+  distribution: uniform
+  n_train: 4000
+  n_test:  1000
+  box_x:   2.0
+  box_xdot: 2.0
+
+fit: { n_iter: 80, n_restarts: 2 }
+rollout:
+  dt:            0.1
+  rollout_steps: 200           # still 20 s total
+  horizons: [1.0, 2.0, 5.0, 10.0, 20.0]
+methods:
+  N_list:     [2, 4, 8, 16]
+  edmd_degs:  [2, 3, 4, 5]
+  le2_N_list: [2, 4, 8, 16]
+  le3_N_list: [2, 4, 8]

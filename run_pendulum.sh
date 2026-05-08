@@ -1,37 +1,47 @@
 #!/usr/bin/env bash
-set -e
+#
+# Multi-seed, multi-config statistical validation for the damped pendulum.
+# Iterates every YAML config in config/pendulum/ (or a custom set passed
+# as positional args) through validation/run_statistical.py --config.
+#
+# Each config writes one JSON + one PNG into papers/data/ / papers/figures/
+# under the config's `name:` field, so multiple configs do NOT overwrite.
+#
+# Usage
+# -----
+#   ./run_pendulum.sh                                  # all configs
+#   ./run_pendulum.sh config/pendulum/uniform_baseline.yaml
+#   ./run_pendulum.sh config/pendulum/dt_*.yaml        # glob
 
+set -e
 cd "$(dirname "$0")"
 
-# ── Pendulum hyperparameters ──────────────────────────────────────
-TRAIN_SEED="${TRAIN_SEED:-42}"
-TEST_SEED="${TEST_SEED:-17}"
-N_TRAIN="${N_TRAIN:-4000}"
-N_TEST="${N_TEST:-1000}"
-DT="${DT:-0.05}"
-N_ITER="${N_ITER:-60}"
-N_RESTARTS="${N_RESTARTS:-2}"
-ROLLOUT_STEPS="${ROLLOUT_STEPS:-200}"
+if [ $# -eq 0 ]; then
+    CONFIGS=(config/pendulum/*.yaml)
+else
+    CONFIGS=("$@")
+fi
+N_CFG=${#CONFIGS[@]}
 
 echo "============================================================"
-echo "  Pendulum Experiment Suite"
-echo "  train_seed=$TRAIN_SEED  test_seed=$TEST_SEED"
-echo "  n_train=$N_TRAIN  n_test=$N_TEST  dt=$DT"
-echo "  n_iter=$N_ITER  n_restarts=$N_RESTARTS"
-echo "  rollout_steps=$ROLLOUT_STEPS"
+echo "  Pendulum Statistical Validation Suite"
+echo "  ${N_CFG} config(s) to run:"
+for cfg in "${CONFIGS[@]}"; do
+    echo "    - ${cfg}"
+done
 echo "============================================================"
-echo ""
 
-echo "[1/1] Pendulum: all four method families"
-python -m validation.validation_pendulum \
-    --train-seed $TRAIN_SEED --test-seed $TEST_SEED \
-    --n-train $N_TRAIN --n-test $N_TEST \
-    --dt $DT --n-iter $N_ITER --n-restarts $N_RESTARTS \
-    --rollout-steps $ROLLOUT_STEPS
-echo ""
+idx=0
+for cfg in "${CONFIGS[@]}"; do
+    idx=$((idx + 1))
+    echo ""
+    echo "############################################################"
+    echo "##  [${idx}/${N_CFG}] ${cfg}"
+    echo "############################################################"
+    python -m validation.run_statistical --config "$cfg"
+    echo ""
+done
 
 echo "============================================================"
-echo "  Pendulum experiments complete."
-echo "  Figures: papers/figures/"
-echo "  Data:    papers/data/"
+echo "  All ${N_CFG} Pendulum config(s) complete."
 echo "============================================================"

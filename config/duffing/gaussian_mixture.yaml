@@ -1,0 +1,28 @@
+name: duffing_gaussian_mixture
+description: >
+  Multimodal Gaussian-mixture density centered on the two stable foci
+  (+/-1, 0) -- the natural "two-well" density structure. Density does
+  not vanish in the saddle region but is much sparser there; emphasizes
+  basin-aware partitioning.
+system: duffing
+
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+
+data:
+  distribution: gaussian_mixture
+  n_train: 4000
+  n_test:  1000
+  centers: [[+1.0, 0.0], [-1.0, 0.0]]
+  sigmas:  [[0.4, 0.4], [0.4, 0.4]]
+  weights: [0.5, 0.5]
+
+fit: { n_iter: 80, n_restarts: 2 }
+rollout:
+  dt:            0.05
+  rollout_steps: 400
+  horizons: [1.0, 2.0, 5.0, 10.0, 20.0]
+methods:
+  N_list:     [2, 4, 8, 16]
+  edmd_degs:  [2, 3, 4, 5]
+  le2_N_list: [2, 4, 8, 16]
+  le3_N_list: [2, 4, 8]

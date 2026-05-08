@@ -56,6 +56,8 @@ Key concepts
 import numpy as np
 from scipy.integrate import solve_ivp
 
+from . import _sampling
+
 # ── System parameters ─────────────────────────────────────────────────────────
 
 SIGMA = 10.0
@@ -160,6 +162,139 @@ def generate_data(
     J_all = np.array([J(x) for x in X])         # (n_steps, 3, 3)
 
     return {'X': X, 'F': F_arr, 'J_all': J_all}
+
+
+# ── Distribution samplers ─────────────────────────────────────────────────────
+#
+# These complement ``generate_data`` (which samples a single long trajectory
+# on the attractor) with distribution-controllable phase-space sampling that
+# is used by config-driven paper experiments.  All return the standard
+# ``{'X', 'F', 'J_all'}`` dict.
+
+LORENZ_FIXED_POINTS = (
+    np.array([+np.sqrt(BETA * (RHO - 1.0)),
+              +np.sqrt(BETA * (RHO - 1.0)), RHO - 1.0]),   # C+
+    np.array([-np.sqrt(BETA * (RHO - 1.0)),
+              -np.sqrt(BETA * (RHO - 1.0)), RHO - 1.0]),   # C-
+)
+
+
+def sample_uniform(
+    n_samples: int = 4000,
+    box_x:     float = 25.0,
+    box_y:     float = 30.0,
+    box_z:     float = 25.0,
+    z_offset:  float = 25.0,
+    seed:      int = 42,
+) -> dict:
+    """Uniform sampling on a (xyz) box covering the Lorenz attractor.
+
+    Defaults give roughly the attractor's bounding box for the standard
+    parameters: ``x in [-25, 25]``, ``y in [-30, 30]``,
+    ``z in [0, 50]`` (centered at ``z_offset``).
+
+    Parameters
+    ----------
+    n_samples : int
+    box_x, box_y, box_z : float
+        Half-widths per axis (z range is ``z_offset +/- box_z``).
+    z_offset : float
+        Center of the z range (Lorenz z is non-negative, so we offset).
+    seed : int
+    """
+    rng = np.random.default_rng(seed)
+    X = np.column_stack([
+        rng.uniform(-box_x, +box_x, n_samples),
+        rng.uniform(-box_y, +box_y, n_samples),
+        rng.uniform(z_offset - box_z, z_offset + box_z, n_samples),
+    ])
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_gaussian(
+    n_samples: int = 4000,
+    mean:      np.ndarray = None,
+    sigma                 = 10.0,
+    seed:      int = 42,
+) -> dict:
+    """Sample Lorenz phase points from a 3D Gaussian.
+
+    Default mean is the attractor's approximate centroid (around the
+    center of the two lobes' enclosing region).
+    """
+    if mean is None:
+        mean = np.array([0.0, 0.0, RHO - 1.0])
+    X = _sampling.gaussian(n_samples, mean, sigma, seed)
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_gaussian_mixture(
+    n_samples: int = 4000,
+    centers:   np.ndarray = None,
+    sigmas                 = 6.0,
+    weights:   np.ndarray = None,
+    seed:      int = 42,
+) -> dict:
+    """Sample from a Gaussian mixture centered on the two unstable foci.
+
+    The default centers ``C+`` and ``C-`` are the system's non-trivial
+    fixed points -- a multimodal density tied to the system's geometry.
+    """
+    if centers is None:
+        centers = np.stack(LORENZ_FIXED_POINTS, axis=0)
+    X = _sampling.gaussian_mixture(n_samples, centers, sigmas, weights, seed)
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_periodic_noise(
+    n_samples:  int = 4000,
+    amplitudes: np.ndarray = None,
+    frequency:  float = 1.0,
+    center:     np.ndarray = None,
+    noise_std:  float = 1.0,
+    seed:       int   = 42,
+) -> dict:
+    """Sample states along a 3D Lissajous-style curve plus noise.
+
+    The default curve traces an ellipse in the ``(x, y)`` plane with a
+    z-axis modulation -- a periodic curve sweeping through both lobes
+    of the attractor's neighborhood.
+    """
+    if amplitudes is None:
+        amplitudes = np.array([10.0, 12.0, 8.0])
+    if center is None:
+        center = np.array([0.0, 0.0, RHO - 1.0])
+    X = _sampling.periodic_noise(
+        n_samples=n_samples, amplitudes=amplitudes, frequency=frequency,
+        center=center, noise_std=noise_std, seed=seed,
+    )
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_trajectory_ensemble(
+    n_traj:        int   = 100,
+    n_steps:       int   = 50,
+    dt:            float = 0.01,
+    ic_box:        float = 20.0,
+    ic_z_offset:   float = 25.0,
+    seed:          int   = 42,
+) -> dict:
+    """Sample Lorenz states from an ensemble of forward trajectories.
+
+    Trajectories converge to the attractor; ICs are uniform in a box.
+    Density is highest along the attractor itself.
+    """
+    def _ic(rng):
+        return np.array([
+            rng.uniform(-ic_box, +ic_box),
+            rng.uniform(-ic_box, +ic_box),
+            rng.uniform(ic_z_offset - ic_box, ic_z_offset + ic_box),
+        ])
+    X = _sampling.trajectory_ensemble(
+        n_traj=n_traj, n_steps=n_steps, dt=dt,
+        f_fn=f, initial_condition_sampler=_ic, seed=seed,
+    )
+    return _sampling.evaluate_field(X, f, J)
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────

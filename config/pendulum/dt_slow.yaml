@@ -1,0 +1,18 @@
+name: pendulum_dt_slow
+description: dt=0.1 (2x baseline); larger Euler-truncation error.
+system: pendulum
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: uniform
+  n_train: 4000
+  n_test:  1000
+  box_x:    3.14159265
+  box_xdot: 3.0
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.1
+  rollout_steps: 100          # still 10 s total
+  horizons: [1.0, 2.5, 5.0, 10.0]
+methods:
+  N_list:    [2, 4, 8, 16]
+  edmd_degs: [2, 4, 6, 8]

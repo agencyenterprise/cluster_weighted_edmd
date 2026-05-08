@@ -1,0 +1,21 @@
+name: lorenz_uniform_narrow_box
+description: >
+  Uniform sampling on a tight box around one of the attractor lobes;
+  tests local fit quality away from the unstable manifold.
+system: lorenz
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: uniform
+  n_train: 4000
+  box_x:    8.0
+  box_y:   10.0
+  box_z:    8.0
+  z_offset: 25.0
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.01
+  rollout_steps: 500
+  horizons: [0.5, 1.0, 2.0, 5.0]
+methods:
+  N_list:    [5, 12, 20, 50]
+  edmd_degs: [2, 3]

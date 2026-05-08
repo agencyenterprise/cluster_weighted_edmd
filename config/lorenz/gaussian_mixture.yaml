@@ -1,0 +1,22 @@
+name: lorenz_gaussian_mixture
+description: >
+  Gaussian mixture centered on the two unstable foci C+ and C- of the
+  Lorenz system. The natural bimodal density tied to the attractor's
+  butterfly geometry.
+system: lorenz
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: gaussian_mixture
+  n_train: 4000
+  centers: [[ 8.485,  8.485, 27.0],
+            [-8.485, -8.485, 27.0]]
+  sigmas:  [6.0, 6.0]
+  weights: [0.5, 0.5]
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.01
+  rollout_steps: 500
+  horizons: [0.5, 1.0, 2.0, 5.0]
+methods:
+  N_list:    [5, 12, 20, 50]
+  edmd_degs: [2, 3]

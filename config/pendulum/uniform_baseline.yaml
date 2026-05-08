@@ -1,0 +1,25 @@
+name: pendulum_uniform_baseline
+description: >
+  Damped pendulum, uniform-on-box phase-space sampling, n_train=4000.
+  Baseline for all parameter-variation studies.
+system: pendulum
+
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+
+data:
+  distribution: uniform
+  n_train: 4000
+  n_test:  1000
+  box_x:    3.14159265        # theta_max = pi
+  box_xdot: 3.0
+  n_traj_pairs:     100       # for discrete-EDMD trajectory pairs
+  traj_steps_pairs:  50
+
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.05
+  rollout_steps: 200          # 10 s
+  horizons: [1.0, 2.5, 5.0, 10.0]
+methods:
+  N_list:    [2, 4, 8, 16]
+  edmd_degs: [2, 4, 6, 8]

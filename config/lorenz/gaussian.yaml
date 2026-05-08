@@ -1,0 +1,20 @@
+name: lorenz_gaussian
+description: >
+  Gaussian-distributed training data centered at the attractor centroid.
+  Density decays away from the centroid; tests behavior on a smooth
+  unimodal density that misses the bimodal-lobe structure.
+system: lorenz
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: gaussian
+  n_train: 4000
+  mean:    [0.0, 0.0, 25.0]
+  sigma:   [10.0, 12.0, 10.0]
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.01
+  rollout_steps: 500
+  horizons: [0.5, 1.0, 2.0, 5.0]
+methods:
+  N_list:    [5, 12, 20, 50]
+  edmd_degs: [2, 3]

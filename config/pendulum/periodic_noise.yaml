@@ -1,0 +1,24 @@
+name: pendulum_periodic_noise
+description: >
+  Training data sampled along the linearized small-oscillation orbit
+  (frequency 1.0, the eigenfrequency at the rest position) plus
+  Gaussian noise. The orbit traces a unit-radius circle in the
+  (theta, theta_dot) plane.
+system: pendulum
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: periodic_noise
+  n_train: 4000
+  n_test:  1000
+  amplitudes: [1.0, 1.0]
+  frequency:  1.0
+  center:     [0.0, 0.0]
+  noise_std:  0.1
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.05
+  rollout_steps: 200
+  horizons: [1.0, 2.5, 5.0, 10.0]
+methods:
+  N_list:    [2, 4, 8, 16]
+  edmd_degs: [2, 4, 6, 8]

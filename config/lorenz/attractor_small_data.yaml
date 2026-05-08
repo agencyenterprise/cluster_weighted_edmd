@@ -1,0 +1,18 @@
+name: lorenz_attractor_small_data
+description: Sample-efficiency study, n_train=500.
+system: lorenz
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: attractor
+  n_train: 500
+  n_steps: 1500
+  warmup:  1000
+  dt:      0.01
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.01
+  rollout_steps: 500
+  horizons: [0.5, 1.0, 2.0, 5.0]
+methods:
+  N_list:    [5, 12, 20, 50]
+  edmd_degs: [2, 3]

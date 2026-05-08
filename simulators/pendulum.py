@@ -70,6 +70,8 @@ Key concepts
 import numpy as np
 from scipy.integrate import solve_ivp
 
+from . import _sampling
+
 
 GAMMA = 0.2   # damping
 
@@ -190,6 +192,129 @@ def sample_phase_space(n_samples=4000, theta_max=np.pi, thetadot_max=3.0, seed=4
     X = np.stack([theta, theta_dot], axis=1)
     F = np.array([f(x) for x in X])
     return {'X': X, 'F': F}
+
+
+def sample_gaussian(
+    n_samples: int = 4000,
+    mean:      np.ndarray = None,
+    sigma                 = 1.0,
+    seed:      int = 42,
+) -> dict:
+    """Sample pendulum phase points from a 2D Gaussian.
+
+    Default mean is ``(0, 0)`` (small-amplitude oscillation regime).
+
+    Parameters
+    ----------
+    n_samples : int
+    mean : array_like, shape ``(2,)`` or None
+    sigma : float or array_like, shape ``(2,)``
+    seed : int
+
+    Returns
+    -------
+    dict with 'X', 'F', 'J_all'.
+    """
+    if mean is None:
+        mean = np.zeros(2)
+    X = _sampling.gaussian(n_samples, mean, sigma, seed)
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_gaussian_mixture(
+    n_samples: int = 4000,
+    centers:   np.ndarray = None,
+    sigmas                 = 0.5,
+    weights:   np.ndarray = None,
+    seed:      int = 42,
+) -> dict:
+    """Sample pendulum phase points from a Gaussian mixture.
+
+    Default centers cover the small-oscillation regime around the down
+    equilibrium and a moderate-energy regime: ``[(0, 0), (0, 2)]``.
+
+    Parameters
+    ----------
+    n_samples : int
+    centers : array_like, shape ``(K, 2)`` or None
+    sigmas : float or array_like
+    weights : array_like or None
+    seed : int
+    """
+    if centers is None:
+        centers = np.array([[0.0, 0.0], [0.0, 2.0]])
+    X = _sampling.gaussian_mixture(n_samples, centers, sigmas, weights, seed)
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_periodic_noise(
+    n_samples:  int = 4000,
+    amplitudes: np.ndarray = None,
+    frequency:  float = 1.0,
+    center:     np.ndarray = None,
+    noise_std:  float = 0.1,
+    seed:       int   = 42,
+) -> dict:
+    """Sample pendulum phase points from a small-amplitude orbit + noise.
+
+    Defaults trace the linearized small-amplitude orbit
+    ``(theta, theta_dot) = (A cos t, -A sin t)`` (frequency 1 = the
+    pendulum's small-oscillation eigenfrequency).
+
+    Parameters
+    ----------
+    n_samples : int
+    amplitudes : array_like, shape ``(2,)`` or None
+        Default ``(1.0, 1.0)``.
+    frequency : float
+    center : array_like, shape ``(2,)`` or None
+        Default ``(0, 0)``.
+    noise_std : float
+    seed : int
+    """
+    if amplitudes is None:
+        amplitudes = np.array([1.0, 1.0])
+    if center is None:
+        center = np.zeros(2)
+    X = _sampling.periodic_noise(
+        n_samples=n_samples, amplitudes=amplitudes, frequency=frequency,
+        center=center, noise_std=noise_std, seed=seed,
+    )
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_trajectory_ensemble(
+    n_traj:        int   = 200,
+    n_steps:       int   = 50,
+    dt:            float = 0.05,
+    ic_theta_max:  float = np.pi,
+    ic_thetadot_max: float = 3.0,
+    seed:          int   = 42,
+) -> dict:
+    """Sample pendulum phase points from an ensemble of forward trajectories.
+
+    Damping concentrates trajectory density near ``(0, 0)`` over time;
+    high-energy ICs spend most of their time in the rotational regime.
+
+    Parameters
+    ----------
+    n_traj : int
+    n_steps : int
+        Steps per trajectory; each contributes ``n_steps + 1`` points.
+    dt : float
+    ic_theta_max, ic_thetadot_max : float
+    seed : int
+    """
+    def _ic(rng):
+        return np.array([
+            rng.uniform(-ic_theta_max,    ic_theta_max),
+            rng.uniform(-ic_thetadot_max, ic_thetadot_max),
+        ])
+    X = _sampling.trajectory_ensemble(
+        n_traj=n_traj, n_steps=n_steps, dt=dt,
+        f_fn=f, initial_condition_sampler=_ic, seed=seed,
+    )
+    return _sampling.evaluate_field(X, f, J)
 
 
 def generate_trajectory(x0, n_steps, dt=0.05, wrap=True):

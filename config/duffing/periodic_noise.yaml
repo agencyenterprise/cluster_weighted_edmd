@@ -1,0 +1,28 @@
+name: duffing_periodic_noise
+description: >
+  Training data sampled along the linearized small-amplitude orbit at
+  the right focus (frequency sqrt(2), the eigenfrequency at +1) plus
+  isotropic Gaussian noise. Tests methods on a "physical orbit" density.
+system: duffing
+
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+
+data:
+  distribution: periodic_noise
+  n_train: 4000
+  n_test:  1000
+  amplitudes: [0.5, 0.7071]    # 0.5 * sqrt(2) for radial-velocity scaling
+  frequency:  1.4142
+  center:     [+1.0, 0.0]
+  noise_std:  0.1
+
+fit: { n_iter: 80, n_restarts: 2 }
+rollout:
+  dt:            0.05
+  rollout_steps: 400
+  horizons: [1.0, 2.0, 5.0, 10.0, 20.0]
+methods:
+  N_list:     [2, 4, 8, 16]
+  edmd_degs:  [2, 3, 4, 5]
+  le2_N_list: [2, 4, 8, 16]
+  le3_N_list: [2, 4, 8]

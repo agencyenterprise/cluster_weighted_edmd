@@ -1,0 +1,21 @@
+name: pendulum_gaussian_mixture
+description: >
+  Bimodal density: rest regime + moderate-energy regime. Tests methods
+  on a non-trivial multimodal distribution.
+system: pendulum
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: gaussian_mixture
+  n_train: 4000
+  n_test:  1000
+  centers: [[0.0, 0.0], [0.0, 2.0]]
+  sigmas:  [[0.5, 0.5], [0.5, 0.5]]
+  weights: [0.6, 0.4]
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.05
+  rollout_steps: 200
+  horizons: [1.0, 2.5, 5.0, 10.0]
+methods:
+  N_list:    [2, 4, 8, 16]
+  edmd_degs: [2, 4, 6, 8]

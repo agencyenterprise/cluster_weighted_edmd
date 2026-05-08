@@ -94,6 +94,8 @@ Key concepts
 import numpy as np
 from scipy.integrate import solve_ivp
 
+from . import _sampling
+
 # -- System parameters --------------------------------------------------------
 
 DELTA = 0.25   # damping
@@ -271,6 +273,111 @@ def sample_phase_space_forced(
 
 
 # -- Trajectory integration ---------------------------------------------------
+
+def sample_gaussian(
+    n_samples: int = 4000,
+    mean:      np.ndarray = None,
+    sigma                 = 1.0,
+    seed:      int = 42,
+) -> dict:
+    """Sample Duffing phase points from a 2D Gaussian.
+
+    Parameters
+    ----------
+    n_samples : int
+    mean : array_like, shape ``(2,)`` or None
+        Default ``(0, 0)`` (centered between the two foci).
+    sigma : float or array_like, shape ``(2,)``
+        Per-axis std (default 1.0).
+    seed : int
+
+    Returns
+    -------
+    dict with 'X', 'F', 'J_all'.
+    """
+    if mean is None:
+        mean = np.zeros(2)
+    X = _sampling.gaussian(n_samples, mean, sigma, seed)
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_gaussian_mixture(
+    n_samples: int = 4000,
+    centers:   np.ndarray = None,
+    sigmas                 = 0.4,
+    weights:   np.ndarray = None,
+    seed:      int = 42,
+) -> dict:
+    """Sample Duffing phase points from a Gaussian mixture.
+
+    The default centers ``[(+1, 0), (-1, 0)]`` are the two stable foci
+    -- the natural multimodal density on this system's basin structure.
+
+    Parameters
+    ----------
+    n_samples : int
+    centers : array_like, shape ``(K, 2)`` or None
+        Default ``[(+1, 0), (-1, 0)]``.
+    sigmas : float or array_like
+        Per-component std (default 0.4).
+    weights : array_like or None
+        Component weights (default equal).
+    seed : int
+
+    Returns
+    -------
+    dict with 'X', 'F', 'J_all'.
+    """
+    if centers is None:
+        centers = np.array([[+1.0, 0.0], [-1.0, 0.0]])
+    X = _sampling.gaussian_mixture(n_samples, centers, sigmas, weights, seed)
+    return _sampling.evaluate_field(X, f, J)
+
+
+def sample_periodic_noise(
+    n_samples:  int = 4000,
+    amplitudes: np.ndarray = None,
+    frequency:  float = None,
+    center:     np.ndarray = None,
+    noise_std:  float = 0.1,
+    seed:       int   = 42,
+) -> dict:
+    """Sample Duffing phase points from a small-amplitude orbit + noise.
+
+    Defaults trace the linearized small-amplitude oscillation around the
+    right focus ``(+1, 0)`` with frequency ``sqrt(2)`` (the local natural
+    frequency of the well).  This is a "physically meaningful" non-uniform
+    distribution that emphasizes one basin's orbital structure.
+
+    Parameters
+    ----------
+    n_samples : int
+    amplitudes : array_like, shape ``(2,)`` or None
+        Default ``(0.5, 0.5*sqrt(2))`` (proportional to natural frequency).
+    frequency : float or None
+        Default ``sqrt(2)`` (linearization eigenfrequency at the focus).
+    center : array_like, shape ``(2,)`` or None
+        Default ``(+1, 0)`` (the right focus).
+    noise_std : float
+        Isotropic Gaussian noise std (default 0.1).
+    seed : int
+
+    Returns
+    -------
+    dict with 'X', 'F', 'J_all'.
+    """
+    if frequency is None:
+        frequency = float(np.sqrt(2.0))
+    if amplitudes is None:
+        amplitudes = np.array([0.5, 0.5 * frequency])
+    if center is None:
+        center = np.array([+1.0, 0.0])
+    X = _sampling.periodic_noise(
+        n_samples=n_samples, amplitudes=amplitudes, frequency=frequency,
+        center=center, noise_std=noise_std, seed=seed,
+    )
+    return _sampling.evaluate_field(X, f, J)
+
 
 def sample_trajectory_ensemble(
     n_traj:     int   = 200,

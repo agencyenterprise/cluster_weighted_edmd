@@ -1,0 +1,22 @@
+name: lorenz_periodic_noise
+description: >
+  Training data sampled along a 3D Lissajous-style curve plus Gaussian
+  noise. The curve traces an ellipse in (x, y) with a z modulation,
+  sweeping through the attractor's neighborhood.
+system: lorenz
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+data:
+  distribution: periodic_noise
+  n_train: 4000
+  amplitudes: [10.0, 12.0, 8.0]
+  frequency:  1.0
+  center:     [0.0, 0.0, 25.0]
+  noise_std:  1.0
+fit: { n_iter: 100, n_restarts: 2 }
+rollout:
+  dt:            0.01
+  rollout_steps: 500
+  horizons: [0.5, 1.0, 2.0, 5.0]
+methods:
+  N_list:    [5, 12, 20, 50]
+  edmd_degs: [2, 3]

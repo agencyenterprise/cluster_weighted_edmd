@@ -8,3 +8,4 @@ pykoopman>=1.0
 optht
 derivative
 lightning
+pyyaml>=6.0

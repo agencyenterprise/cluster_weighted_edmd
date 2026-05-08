@@ -1,0 +1,28 @@
+name: duffing_uniform_wide_box
+description: >
+  Extrapolation regime: uniform sampling on box=[-3, 3]^2, where the
+  cubic -x^3 term dominates. High-curvature regime stresses local
+  Taylor expansion and global low-degree EDMD.
+system: duffing
+
+seeds: [1, 42, 101, 307, 1001, 7789, 13245, 11, 103, 13]
+
+data:
+  distribution: uniform
+  n_train: 4000
+  n_test:  1000
+  box_x:   3.0
+  box_xdot: 3.0
+  test_box_x:    3.0
+  test_box_xdot: 3.0
+
+fit: { n_iter: 80, n_restarts: 2 }
+rollout:
+  dt:            0.05
+  rollout_steps: 400
+  horizons: [1.0, 2.0, 5.0, 10.0, 20.0]
+methods:
+  N_list:     [2, 4, 8, 16]
+  edmd_degs:  [2, 3, 4, 5]
+  le2_N_list: [2, 4, 8, 16]
+  le3_N_list: [2, 4, 8]
