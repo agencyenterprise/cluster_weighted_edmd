@@ -1,0 +1,29 @@
+# Pendulum smoke config -- minimal end-to-end pipeline check.
+
+name: smoke_pendulum
+description: Minimal pendulum smoke run (3 seeds, n_train=500, N in {2,4}).
+system: pendulum
+
+seeds: [1, 42, 101]
+
+data:
+  distribution: uniform
+  n_train: 500
+  n_test:  200
+  box_x:    3.14159265
+  box_xdot: 3.0
+  n_traj_pairs:     20
+  traj_steps_pairs: 20
+
+fit:
+  n_iter:     20
+  n_restarts: 1
+
+rollout:
+  dt:            0.05
+  rollout_steps: 100              # 5 s
+  horizons: [1.0, 5.0]
+
+methods:
+  N_list:    [2, 4]
+  edmd_degs: [2]

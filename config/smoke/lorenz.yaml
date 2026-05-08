@@ -1,0 +1,27 @@
+# Lorenz smoke config -- minimal end-to-end pipeline check.
+
+name: smoke_lorenz
+description: Minimal Lorenz smoke run (3 seeds, n_train=500, N in {5,12}).
+system: lorenz
+
+seeds: [1, 42, 101]
+
+data:
+  distribution: attractor
+  n_train: 500
+  n_steps: 1500
+  warmup:  500
+  dt:      0.01
+
+fit:
+  n_iter:     20
+  n_restarts: 1
+
+rollout:
+  dt:            0.01
+  rollout_steps: 100              # 1 s
+  horizons: [0.5, 1.0]
+
+methods:
+  N_list:    [5, 12]
+  edmd_degs: [2]

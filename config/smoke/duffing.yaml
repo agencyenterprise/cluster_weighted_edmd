@@ -1,0 +1,34 @@
+# Duffing smoke config -- minimal end-to-end pipeline check.
+#
+# Designed to run in ~30-60 s total: 3 seeds, tiny training set, smallest
+# cluster sweep, single EDMD degree, short rollout. Output naming matches
+# the production conventions so the analyzer can compile it alongside any
+# real configs that have already run.
+
+name: smoke_duffing
+description: Minimal Duffing smoke run (3 seeds, n_train=500, N in {2,4}).
+system: duffing
+
+seeds: [1, 42, 101]
+
+data:
+  distribution: uniform
+  n_train: 500
+  n_test:  200
+  box_x:    2.0
+  box_xdot: 2.0
+
+fit:
+  n_iter:     20
+  n_restarts: 1
+
+rollout:
+  dt:            0.05
+  rollout_steps: 100              # 5 s
+  horizons: [1.0, 5.0]
+
+methods:
+  N_list:     [2, 4]
+  edmd_degs:  [2]
+  le2_N_list: [2, 4]
+  le3_N_list: []                   # skip deg-3 (slow due to large M = 10x10)
