@@ -223,3 +223,10 @@ papers/data/
 .DS_Store
 *.zip
 analysis*/
+template.tex
+template.pdf
+sin.pdf
+*.bbl
+*.blg
+papers/scml2026/LICENSE.txt
+papers/scml2026/README.md
