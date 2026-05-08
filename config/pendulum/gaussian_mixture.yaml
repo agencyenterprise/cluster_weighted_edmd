@@ -19,3 +19,4 @@ rollout:
 methods:
   N_list:    [2, 4, 8, 16]
   edmd_degs: [2, 4, 6, 8]
+  le_degrees: [2, 4]

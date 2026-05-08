@@ -222,4 +222,4 @@ __marimo__/
 papers/data/
 .DS_Store
 *.zip
-analysis/
+analysis*/

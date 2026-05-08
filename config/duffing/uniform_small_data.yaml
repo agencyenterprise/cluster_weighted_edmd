@@ -23,3 +23,5 @@ methods:
   edmd_degs:  [2, 3, 4, 5]
   le2_N_list: [2, 4, 8, 16]
   le3_N_list: [2, 4, 8]
+  le4_N_list: [2, 4]
+  le5_N_list: [2, 4]
