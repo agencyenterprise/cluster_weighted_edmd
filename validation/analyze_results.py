@@ -64,6 +64,11 @@ parser.add_argument('--out-dir',  type=str, default=None,
 parser.add_argument('--metrics-table', nargs='+',
                     default=['one_step', 'r5s', 'r10s', 'r20s'],
                     help="metrics to include in the per-system summary tables")
+parser.add_argument('--from-csv', type=str, default=None,
+                    help="Skip JSON-corpus loading and read the long-form "
+                         "DataFrame directly from this CSV. Useful for "
+                         "re-rendering figures after changing the plotting "
+                         "code without re-running the full sweep.")
 args = parser.parse_args()
 
 
@@ -163,17 +168,34 @@ def _fmt(mean: float, ci: float) -> str:
     return f"{mean:.4f} +/- {ci:.4f}"
 
 
+def _system_metrics(agg: pd.DataFrame, system: str, preferred):
+    """Return the per-system metric list, intersected with the preferred order.
+
+    The corpus may have system-specific metrics (e.g., Lorenz uses r0_5s, r1s
+    while Pendulum uses r5s, r10s). Filtering globally to the intersection
+    silently drops every rollout metric for systems that don't share it.
+    Instead, take the per-system metrics that are present, ordered by the
+    user's preferred list with any leftover metrics appended at the end.
+    """
+    sys_metrics  = set(agg[agg.system == system]['metric'].unique())
+    head = [m for m in preferred if m in sys_metrics]
+    tail = [m for m in sorted(sys_metrics) if m not in head and m != 'rel_pct']
+    return head + tail
+
+
 def summary_tables(agg: pd.DataFrame, metrics, out_dir: Path):
     """Write per-system markdown + latex tables (one per metric, columns=configs)."""
     written = []
     for system in sorted(agg['system'].unique()):
+        sys_metrics = _system_metrics(agg, system, metrics)
         sys_md  = [f"# {system.capitalize()} -- multi-config summary",
                    "",
                    f"Mean +/- 95% CI across seeds for each (method, config, metric).",
+                   f"Metrics included: {', '.join(f'`{m}`' for m in sys_metrics)}.",
                    ""]
         sys_tex = []
 
-        for metric in metrics:
+        for metric in sys_metrics:
             block = agg[(agg.system == system) & (agg.metric == metric)]
             if block.empty:
                 continue
@@ -327,97 +349,356 @@ def cross_config_paired_tests(df: pd.DataFrame, metrics, out_dir: Path):
 
 # -- Figures ------------------------------------------------------------------
 
-def _plot_ablation_grid(agg: pd.DataFrame, system: str, metric: str, out_dir: Path):
-    """Heatmap of mean metric: rows=method, cols=config_name."""
-    block = agg[(agg.system == system) & (agg.metric == metric)]
+# Method-family taxonomy. Order determines color/legend order in plots.
+_FAMILIES = [
+    ('EDMD-pykoopman',         '#999999'),    # external pykoopman baseline (grey)
+    ('Global EDMD continuous', '#d62728'),    # red -- continuous global (legacy)
+    ('Global EDMD discrete',   '#ff7f0e'),    # orange -- discrete global (paper standard)
+    ('Local-EDMD continuous',  '#9467bd'),    # purple -- continuous local
+    ('Local-EDMD discrete',    '#1f77b4'),    # blue -- discrete local (paper standard)
+    ('Taylor-analytic',        '#2ca02c'),    # green -- physics-aware
+    ('Taylor-LS',              '#17becf'),    # cyan -- LS-fit Taylor variant
+    ('GMM-baseline',           '#e377c2'),    # pink -- residual-free baseline
+    ('Other',                  '#7f7f7f'),
+]
+_FAMILY_COLOR = dict(_FAMILIES)
+_FAMILY_ORDER = {name: i for i, (name, _) in enumerate(_FAMILIES)}
+
+# State dimension per system (used to derive parameter counts from method labels).
+_SYSTEM_D = {'lorenz': 3, 'pendulum': 2, 'duffing': 2}
+
+
+def _method_family(name: str) -> str:
+    """Map a method name to its family bucket for grouping/color."""
+    n = name.lower().replace(' ', '').replace('_', '-')
+    if 'gmm' in n:
+        return 'GMM-baseline'
+    if 'taylor-ls' in n or 'taylorls' in n:
+        return 'Taylor-LS'
+    if 'taylor' in n:
+        return 'Taylor-analytic'
+    if 'edmd-pk' in n or 'edmd-pykoopman' in n:
+        return 'EDMD-pykoopman'
+    if 'local' in n and ('-disc' in n or 'disc' in n.split('local-edmd-')[-1].split('n=')[0]):
+        return 'Local-EDMD discrete'
+    if 'local-edmd' in n or 'localedmd' in n:
+        return 'Local-EDMD continuous'
+    if 'edmd-disc' in n or 'edmddisc' in n:
+        return 'Global EDMD discrete'
+    if 'edmd-ours' in n or 'globaledmd' in n or 'edmd-cont' in n:
+        return 'Global EDMD continuous'
+    return 'Other'
+
+
+def _method_params(name: str, d: int):
+    """Best-effort parameter count parsed from a method label.
+
+    Returns ``(params, N_or_deg_str)`` for plot annotation, or ``(None, '')``
+    if the label can't be parsed.
+    """
+    nl = name.lower().replace(' ', '').replace('_', '-')
+    fam = _method_family(name)
+    from math import comb
+
+    n_match = re.search(r'n=(\d+)', nl)
+    N = int(n_match.group(1)) if n_match else None
+
+    deg = None
+    deg_match = re.search(r'deg[-=](\d+)', nl)
+    if deg_match:
+        deg = int(deg_match.group(1))
+    elif re.search(r'\bd(\d+)', nl):
+        deg = int(re.search(r'\bd(\d+)', nl).group(1))
+
+    if fam in ('Taylor-analytic', 'Taylor-LS', 'GMM-baseline') and N is not None:
+        return N * (d * d + d), f"N={N}"
+    if fam in ('Local-EDMD continuous', 'Local-EDMD discrete') and N is not None:
+        d_eff = deg or 2
+        M = comb(d + d_eff, d_eff)
+        return N * M * M, f"N={N}, deg={d_eff}"
+    if fam in ('Global EDMD continuous', 'Global EDMD discrete',
+               'EDMD-pykoopman') and deg is not None:
+        M = comb(d + deg, deg)
+        return M * M, f"deg={deg}"
+    return None, ''
+
+
+def _short_config(config_name: str, system: str) -> str:
+    return config_name.replace(f"{system}_", "")
+
+
+def _plot_method_bars(agg: pd.DataFrame, df: pd.DataFrame, system: str,
+                      metric: str, config: str, out_dir: Path):
+    """Per (system, config, metric) horizontal forest plot, sorted by mean.
+
+    Forest-plot style (dot + whisker) is preferred over bars on a log axis
+    because (a) bars don't have a meaningful "zero" on a log scale and
+    (b) asymmetric CI clipping is visually clean.
+    """
+    block = agg[(agg.system == system) & (agg.metric == metric)
+                & (agg.config_name == config)].copy()
     if block.empty:
         return
-    pivot = block.pivot_table(index='method', columns='config_name', values='mean')
-    if pivot.empty:
-        return
-    methods = pivot.index.tolist()
-    configs = pivot.columns.tolist()
-    M = pivot.values
-
-    fig_h = max(4.5, 0.35 * len(methods) + 1.5)
-    fig_w = max(7.0, 0.6  * len(configs) + 2.0)
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-
-    # Use log color norm if values span several decades and are positive
-    finite = M[np.isfinite(M) & (M > 0)]
-    if finite.size and finite.max() / max(finite.min(), 1e-12) > 100:
-        norm = LogNorm(vmin=max(finite.min(), 1e-12), vmax=finite.max())
-    else:
-        norm = None
-
-    im = ax.imshow(M, aspect='auto', cmap='viridis', norm=norm)
-    ax.set_xticks(range(len(configs)))
-    ax.set_xticklabels([c.replace(f"{system}_", "") for c in configs],
-                       rotation=45, ha='right', fontsize=8)
-    ax.set_yticks(range(len(methods)))
-    ax.set_yticklabels(methods, fontsize=8)
-
-    for i, m in enumerate(methods):
-        for j, c in enumerate(configs):
-            v = M[i, j]
-            if np.isfinite(v):
-                ax.text(j, i, f"{v:.3g}", ha='center', va='center',
-                        fontsize=6, color='white' if (v > np.nanmedian(M)) else 'black')
-
-    cbar = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02)
-    cbar.set_label(f"mean {metric}")
-    ax.set_title(f"{system.capitalize()} - {metric} across configurations "
-                 f"(mean across seeds)")
-    plt.tight_layout()
-    fp = out_dir / f"ablation_{system}_{metric}.png"
-    plt.savefig(fp, dpi=130)
-    plt.close(fig)
-    print(f"[fig] wrote {fp.name}")
-
-
-def _plot_robustness(agg: pd.DataFrame, system: str, metric: str, out_dir: Path):
-    """Per-method line across configs (x = config, y = mean ± CI)."""
-    block = agg[(agg.system == system) & (agg.metric == metric)]
+    block = block[np.isfinite(block['mean']) & (block['mean'] > 0)]
     if block.empty:
         return
-    methods = sorted(block['method'].unique())
-    configs = sorted(block['config_name'].unique())
 
-    fig, ax = plt.subplots(figsize=(max(8.0, 0.5 * len(configs) + 3.0), 5.5))
+    d = _SYSTEM_D.get(system, 2)
+    block['family']    = block['method'].apply(_method_family)
+    block['params']    = block['method'].apply(lambda m: _method_params(m, d)[0])
+    block['param_str'] = block['method'].apply(lambda m: _method_params(m, d)[1])
+    # Sort: best (lowest mean) at the TOP for fast scanning
+    block = block.sort_values('mean', ascending=False).reset_index(drop=True)
 
-    cmap = plt.get_cmap('tab20')
-    for i, method in enumerate(methods):
-        m_block = block[block.method == method].set_index('config_name')
-        means = [m_block.loc[c, 'mean'] if c in m_block.index else np.nan
-                 for c in configs]
-        cis   = [m_block.loc[c, 'ci']   if c in m_block.index else 0.0
-                 for c in configs]
-        ax.errorbar(range(len(configs)), means, yerr=cis,
-                    fmt='o-', color=cmap(i % 20),
-                    label=method, markersize=4, alpha=0.85, linewidth=1.0)
+    n_seeds = int(df[(df.system == system) & (df.metric == metric)
+                     & (df.config_name == config)].groupby('method')['seed']
+                     .nunique().max() or 0)
 
-    ax.set_xticks(range(len(configs)))
-    ax.set_xticklabels([c.replace(f"{system}_", "") for c in configs],
-                       rotation=45, ha='right', fontsize=8)
-    ax.set_ylabel(f"mean {metric}")
-    ax.set_yscale('log')
-    ax.grid(alpha=0.3, which='both')
-    ax.set_title(f"{system.capitalize()} - {metric} robustness across configs "
-                 "(mean +/- 95% CI per method)")
-    ax.legend(fontsize=7, loc='center left', bbox_to_anchor=(1.0, 0.5),
-              frameon=False, ncol=1)
+    fig_h = max(3.0, 0.36 * len(block) + 1.4)
+    fig, ax = plt.subplots(figsize=(11.5, fig_h))
+
+    means = block['mean'].values
+    cis   = block['ci'].values
+    means_pos = means[means > 0]
+    if not means_pos.size:
+        plt.close(fig); return
+
+    # Asymmetric error bars, clipped so lower bound stays positive
+    lower_floor = max(np.nanmin(means_pos) * 0.2, 1e-12)
+    lo  = np.clip(means - cis, lower_floor, None)
+    hi  = means + cis
+    err_low  = means - lo
+    err_high = hi - means
+
+    colors = [_FAMILY_COLOR.get(fam, _FAMILY_COLOR['Other']) for fam in block['family']]
+    y_pos  = np.arange(len(block))
+
+    # Light row stripes for readability
+    for i in range(len(block)):
+        if i % 2 == 0:
+            ax.axhspan(i - 0.5, i + 0.5, color='#f7f7f7', zorder=0)
+
+    # Dot + whisker per method
+    ax.errorbar(means, y_pos, xerr=[err_low, err_high], fmt='none',
+                ecolor='#444444', elinewidth=1.0, capsize=3, zorder=2)
+    ax.scatter(means, y_pos, c=colors, s=80, edgecolor='black', linewidth=0.7,
+               zorder=3)
+
+    # Compact annotation on the far right (column-aligned)
+    x_anno = hi.max() * 1.6
+    for i, (m, ci, ps, params) in enumerate(zip(
+            means, cis, block['param_str'], block['params'])):
+        if not np.isfinite(m):
+            continue
+        prec = max(0, -int(np.floor(np.log10(max(m, 1e-12)))) + 2)
+        prec = min(prec, 5)
+        ann_main = f"{m:.{prec}f} ± {ci:.{prec}f}"
+        ann_meta = f"{ps}, {params}p" if (ps and params) else (ps or '')
+        ax.text(x_anno, i, ann_main, va='center', ha='left',
+                fontsize=8.5, family='monospace', color='black')
+        if ann_meta:
+            ax.text(x_anno * 4.5, i, ann_meta, va='center', ha='left',
+                    fontsize=7.5, family='monospace', color='#555555')
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(block['method'].values, fontsize=9)
+    ax.invert_yaxis()                    # best at top
+    ax.set_xscale('log')
+
+    # X-limits: leave room for the annotation column
+    ax.set_xlim(left=lower_floor, right=x_anno * 30)
+    ax.set_xlabel(f"mean {metric}  (lower is better, log scale)")
+    ax.set_title(f"{system.capitalize()} | {_short_config(config, system)} | "
+                 f"{metric}  (mean ± 95% CI, n={n_seeds} seeds; "
+                 "best methods at top)",
+                 fontsize=11)
+    ax.grid(axis='x', which='both', alpha=0.25, zorder=1)
+    ax.set_axisbelow(True)
+
+    # Legend: one entry per family present, ordered by family hierarchy
+    seen_fams = []
+    for fam in block['family']:
+        if fam not in seen_fams:
+            seen_fams.append(fam)
+    seen_fams.sort(key=lambda f: _FAMILY_ORDER.get(f, 99))
+    handles = [plt.Line2D([0], [0], marker='o', linestyle='',
+                          markerfacecolor=_FAMILY_COLOR.get(f, _FAMILY_COLOR['Other']),
+                          markeredgecolor='black', markersize=8)
+               for f in seen_fams]
+    ax.legend(handles, seen_fams, loc='lower right', fontsize=8,
+              framealpha=0.92, ncol=1)
+
     plt.tight_layout()
-    fp = out_dir / f"robustness_{system}_{metric}.png"
+    fp = out_dir / f"bars_{system}_{_short_config(config, system)}_{metric}.png"
     plt.savefig(fp, dpi=130, bbox_inches='tight')
     plt.close(fig)
     print(f"[fig] wrote {fp.name}")
 
 
-def aggregate_figures(agg: pd.DataFrame, metrics, out_dir: Path):
+def _plot_pareto(agg: pd.DataFrame, system: str, metric: str, out_dir: Path):
+    """Pareto plot: x = #parameters (log), y = mean metric (log).
+
+    One scatter point per (method, config) pair, colored by family. Error
+    bars on y-axis show 95% CI (clipped to stay positive on log scale).
+    Pareto frontier (best error per param budget) is highlighted.
+    Each point labeled with its method's distinguishing parameter
+    (``N=k`` for clustered methods, ``deg=k`` for global EDMD).
+    """
+    block = agg[(agg.system == system) & (agg.metric == metric)].copy()
+    if block.empty:
+        return
+    d = _SYSTEM_D.get(system, 2)
+    block['family']    = block['method'].apply(_method_family)
+    block['params']    = block['method'].apply(lambda m: _method_params(m, d)[0])
+    block['param_str'] = block['method'].apply(lambda m: _method_params(m, d)[1])
+    block = block.dropna(subset=['params'])
+    block = block[np.isfinite(block['mean']) & (block['mean'] > 0)]
+    if block.empty:
+        return
+
+    fig, ax = plt.subplots(figsize=(10.0, 6.5))
+
+    # Lower-bound floor for log-scale CI clipping
+    y_floor = max(block['mean'].min() * 0.05, 1e-12)
+
+    for fam in sorted(block['family'].unique(),
+                      key=lambda f: _FAMILY_ORDER.get(f, 99)):
+        sub = block[block.family == fam]
+        color = _FAMILY_COLOR.get(fam, _FAMILY_COLOR['Other'])
+        means = sub['mean'].values
+        cis   = sub['ci'].values
+        lo    = np.clip(means - cis, y_floor, None)
+        err_low  = means - lo
+        err_high = cis
+        ax.errorbar(sub['params'].values, means,
+                    yerr=[err_low, err_high],
+                    fmt='o', color=color, markersize=8,
+                    markeredgecolor='black', markeredgewidth=0.6,
+                    elinewidth=0.8, capsize=3, zorder=3, alpha=0.9,
+                    label=fam)
+
+    # Per-point text label with the parameter (N or deg)
+    label_offset_y = 1.07          # multiplicative on log axis
+    for _, row in block.iterrows():
+        ps = row['param_str']
+        if not ps:
+            continue
+        # Compact label: "N=8" or "deg=2"
+        compact = (ps.split(',')[0]).replace(' ', '')
+        ax.annotate(compact, xy=(row['params'], row['mean']),
+                    xytext=(row['params'], row['mean'] * label_offset_y),
+                    textcoords='data', ha='center', va='bottom',
+                    fontsize=7.5, color='#333333',
+                    bbox=dict(boxstyle='round,pad=0.15', fc='white',
+                              ec='none', alpha=0.6))
+
+    # Pareto frontier
+    pts = block[['params', 'mean', 'method']].sort_values('params').values
+    pareto = []
+    best_y = float('inf')
+    for x, y, m in pts:
+        if y < best_y:
+            pareto.append((x, y, m))
+            best_y = y
+    if pareto:
+        px, py, _ = zip(*pareto)
+        ax.plot(px, py, '--', color='black', alpha=0.55, linewidth=1.4,
+                zorder=2, label='Pareto frontier')
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel('# parameters (log)')
+    ax.set_ylabel(f'mean {metric} (log)')
+    ax.grid(which='both', alpha=0.3, zorder=1)
+    ax.set_axisbelow(True)
+
+    n_configs = block['config_name'].nunique()
+    ax.set_title(f"{system.capitalize()} | {metric} | parameters vs error  "
+                 f"(across {n_configs} config(s); mean ± 95% CI; "
+                 "lower-left is better)",
+                 fontsize=11)
+    ax.legend(fontsize=8, loc='best', framealpha=0.92)
+
+    plt.tight_layout()
+    fp = out_dir / f"pareto_{system}_{metric}.png"
+    plt.savefig(fp, dpi=130, bbox_inches='tight')
+    plt.close(fig)
+    print(f"[fig] wrote {fp.name}")
+
+
+def _plot_cross_config_sensitivity(agg: pd.DataFrame, system: str,
+                                   metric: str, out_dir: Path):
+    """Small-multiples: one panel per family, x = config, y = mean ± CI."""
+    block = agg[(agg.system == system) & (agg.metric == metric)].copy()
+    if block.empty:
+        return
+    block['family'] = block['method'].apply(_method_family)
+    families = [f for f in
+                sorted(block['family'].unique(), key=lambda f: _FAMILY_ORDER.get(f, 99))
+                if (block.family == f).sum() > 0]
+    if not families:
+        return
+
+    configs = sorted(block['config_name'].unique())
+    if len(configs) < 2:
+        return
+
+    n_panels = len(families)
+    n_cols = min(3, n_panels)
+    n_rows = int(np.ceil(n_panels / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 3.0 * n_rows),
+                             sharex=True, squeeze=False)
+
+    for idx, fam in enumerate(families):
+        ax = axes[idx // n_cols][idx % n_cols]
+        fam_block = block[block.family == fam]
+        methods = sorted(fam_block['method'].unique())
+        cmap = plt.get_cmap('tab20')
+        for j, method in enumerate(methods):
+            m_block = fam_block[fam_block.method == method].set_index('config_name')
+            means = [m_block.loc[c, 'mean'] if c in m_block.index else np.nan
+                     for c in configs]
+            cis   = [m_block.loc[c, 'ci']   if c in m_block.index else 0.0
+                     for c in configs]
+            ax.errorbar(range(len(configs)), means, yerr=cis,
+                        fmt='o-', color=cmap(j % 20), markersize=4,
+                        elinewidth=0.7, capsize=2, label=method, alpha=0.9)
+        ax.set_yscale('log')
+        ax.grid(alpha=0.3, which='both')
+        ax.set_title(fam, fontsize=10, color=_FAMILY_COLOR.get(fam, 'black'))
+        ax.set_xticks(range(len(configs)))
+        ax.set_xticklabels([_short_config(c, system) for c in configs],
+                           rotation=45, ha='right', fontsize=7)
+        if len(methods) <= 6:
+            ax.legend(fontsize=6, loc='best', framealpha=0.9)
+        else:
+            ax.legend(fontsize=5, loc='upper left', bbox_to_anchor=(1.0, 1.0),
+                      framealpha=0.9, ncol=1)
+
+    # Hide unused panels
+    for idx in range(n_panels, n_rows * n_cols):
+        axes[idx // n_cols][idx % n_cols].set_visible(False)
+
+    fig.suptitle(f"{system.capitalize()} | {metric} across {len(configs)} configs"
+                 "  (mean ± 95% CI; one panel per method family)",
+                 fontsize=11, y=1.01)
+    plt.tight_layout()
+    fp = out_dir / f"sensitivity_{system}_{metric}.png"
+    plt.savefig(fp, dpi=130, bbox_inches='tight')
+    plt.close(fig)
+    print(f"[fig] wrote {fp.name}")
+
+
+def aggregate_figures(agg: pd.DataFrame, df: pd.DataFrame, metrics, out_dir: Path):
     for system in sorted(agg['system'].unique()):
-        for metric in metrics:
-            _plot_ablation_grid(agg, system, metric, out_dir)
-            _plot_robustness(agg, system, metric, out_dir)
+        configs     = sorted(agg[agg.system == system]['config_name'].unique())
+        sys_metrics = _system_metrics(agg, system, metrics)
+        for metric in sys_metrics:
+            for config in configs:
+                _plot_method_bars(agg, df, system, metric, config, out_dir)
+            _plot_pareto(agg, system, metric, out_dir)
+            if len(configs) >= 2:
+                _plot_cross_config_sensitivity(agg, system, metric, out_dir)
 
 
 # -- Main ---------------------------------------------------------------------
@@ -430,9 +711,14 @@ print(f"  systems:   {args.systems}")
 print(f"  metrics:   {args.metrics_table}")
 print("=" * 72)
 
-df = load_corpus(DATA_DIR, set(args.systems))
+if args.from_csv:
+    print(f"[corpus] reading long-form CSV: {args.from_csv}")
+    df = pd.read_csv(args.from_csv)
+    df = df[df['system'].isin(set(args.systems))]
+else:
+    df = load_corpus(DATA_DIR, set(args.systems))
 if df.empty:
-    print("\nNo per-config JSONs found (empty corpus). "
+    print("\nNo per-config rows in corpus. "
           "Run `./run_all.sh` (or one of the per-system scripts) first.")
     raise SystemExit(0)
 
@@ -447,17 +733,22 @@ agg_csv = OUT_DIR / "summary.csv"
 agg.to_csv(agg_csv, index=False)
 print(f"[csv] wrote {agg_csv}  ({len(agg):,} rows)")
 
-# Available metrics in the corpus (intersection with requested)
-available_metrics = sorted(df['metric'].unique())
-metrics_to_use = [m for m in args.metrics_table if m in available_metrics]
-if not metrics_to_use:
-    metrics_to_use = available_metrics
-print(f"[metrics] available={available_metrics}; using={metrics_to_use}")
+# Per-system metrics: each system shows whatever it has (the user's
+# --metrics-table is a *preferred order*, not a corpus-wide filter).
+metrics_per_system = {sys: sorted(df[df.system == sys]['metric'].unique())
+                      for sys in sorted(df['system'].unique())}
+metrics_to_use = list(args.metrics_table) if args.metrics_table else \
+                 ['one_step'] + sorted({m for s in metrics_per_system.values()
+                                        for m in s if m.startswith('r')})
+print(f"[metrics] per-system available:")
+for sys, ms in metrics_per_system.items():
+    print(f"  {sys}: {ms}")
+print(f"[metrics] preferred order: {metrics_to_use}")
 
 # Tables, paired-tests, figures
 summary_tables(agg, metrics_to_use, OUT_DIR)
 cross_config_paired_tests(df, metrics_to_use, OUT_DIR)
-aggregate_figures(agg, metrics_to_use, OUT_DIR)
+aggregate_figures(agg, df, metrics_to_use, OUT_DIR)
 
 print("\n" + "=" * 72)
 print(f"  Done. Outputs in {OUT_DIR}")

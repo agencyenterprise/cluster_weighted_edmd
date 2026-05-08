@@ -117,15 +117,15 @@ if [ "$SKIP_ANALYZE" = false ]; then
         fi
     done
 
-    # At least one ablation and one robustness PNG per system
+    # At least one bars chart and one Pareto plot per system
     for sys in duffing pendulum lorenz; do
-        ab=$(ls papers/analysis/ablation_${sys}_*.png 2>/dev/null | wc -l | tr -d ' ')
-        rb=$(ls papers/analysis/robustness_${sys}_*.png 2>/dev/null | wc -l | tr -d ' ')
-        if [ "$ab" -ge 1 ] && [ "$rb" -ge 1 ]; then
-            echo "  OK    papers/analysis/ablation_${sys}_*.png  (${ab} files)"
-            echo "  OK    papers/analysis/robustness_${sys}_*.png (${rb} files)"
+        bars=$(ls papers/analysis/bars_${sys}_*.png 2>/dev/null | wc -l | tr -d ' ')
+        par=$(ls papers/analysis/pareto_${sys}_*.png 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$bars" -ge 1 ] && [ "$par" -ge 1 ]; then
+            echo "  OK    papers/analysis/bars_${sys}_*.png   (${bars} files)"
+            echo "  OK    papers/analysis/pareto_${sys}_*.png (${par} files)"
         else
-            echo "  MISSING ablation/robustness PNGs for ${sys} (ab=${ab}, rb=${rb})"
+            echo "  MISSING bars/pareto PNGs for ${sys} (bars=${bars}, pareto=${par})"
             fail=$((fail + 1))
         fi
     done

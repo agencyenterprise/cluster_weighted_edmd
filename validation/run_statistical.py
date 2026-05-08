@@ -70,11 +70,9 @@ from simulators.duffing import (
     DELTA                       as DUFFING_DELTA,
 )
 from models.em import fit as fit_taylor
-from models.em_local_edmd import (
-    monomial_exponents, monomials, weighted_continuous_edmd,
-    fit as fit_local_edmd_cont,
-    predict_f_all_clusters,
-)
+# Discrete EDMD is the only EDMD variant used here -- no derivatives, no
+# Euler steps. The continuous fitters (weighted_continuous_edmd /
+# fit_local_edmd_cont) are intentionally not imported.
 from models.em_local_edmd_discrete import (
     fit as fit_local_edmd_disc,
     fit_global as fit_global_disc,
@@ -831,13 +829,6 @@ def pendulum_eval_rollout(predict_fn, model, inits, n_roll, dt, d, horizons):
     return _pendulum_rollout_inner(inits, n_roll, dt, d, horizons, _step)
 
 
-def pendulum_eval_rollout_global(g, inits, n_roll, dt, d, horizons):
-    def _step(x):
-        f_hat = pendulum_predict_global(x, g, d)[0]
-        return pendulum_euler_step(x[0], f_hat, dt)
-    return _pendulum_rollout_inner(inits, n_roll, dt, d, horizons, _step)
-
-
 def _make_pendulum_data(seed):
     """Build train / test data for Pendulum using args.pendulum_distribution."""
     sampler = PENDULUM_TRAIN_SAMPLERS.get(args.pendulum_distribution)
@@ -850,22 +841,6 @@ def _make_pendulum_data(seed):
     # with Duffing).
     test = sample_phase_space(n_samples=args.pendulum_n_test, seed=seed + 10000)
     return train, test
-
-
-def pendulum_fit_global_edmd(X_tr, F_tr, degree, d):
-    exps = monomial_exponents(d, degree)
-    c = X_tr.mean(dim=0)
-    r = torch.ones(X_tr.shape[0], dtype=torch.float64)
-    from models.em_local_edmd import weighted_continuous_edmd
-    M = weighted_continuous_edmd(X_tr, F_tr, r, c, exps, ridge=1e-6)
-    return {'M': M, 'c': c, 'exps': exps}
-
-
-def pendulum_predict_global(X, g, d):
-    U = X - g['c']
-    Phi = monomials(U, g['exps'])
-    Phi_dot = Phi @ g['M'].T
-    return Phi_dot[:, 1:d + 1]
 
 
 def run_pendulum_seed(seed):
@@ -903,14 +878,6 @@ def run_pendulum_seed(seed):
                      dtype=torch.float64)
         for x in X_te
     ])
-
-    # ── Global EDMD (continuous) ─────────────────────────────────────────
-    for deg in args.pendulum_edmd_degrees:
-        g = pendulum_fit_global_edmd(X_tr, F_tr, deg, d)
-        F_pred = pendulum_predict_global(X_te, g, d)
-        one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
-        roll = pendulum_eval_rollout_global(g, rollout_inits, n_roll, dt, d, horizons)
-        results[f'Global EDMD deg={deg}'] = {'one_step': one, **roll}
 
     # ── Global discrete EDMD ─────────────────────────────────────────────
     for deg in args.pendulum_edmd_degrees:
@@ -963,11 +930,6 @@ def run_pendulum_seed(seed):
         X_tr_curr, X_tr_next, N=best_N, hp={**hp_disc, 'sigma2': 'auto'},
         degree=2, n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
     models['local_edmd_disc'] = s_disc
-
-    best_deg = args.pendulum_edmd_degrees[-1]
-    g_global = pendulum_fit_global_edmd(X_tr, F_tr, best_deg, d)
-    models['global_edmd'] = g_global
-    models['global_edmd_degree'] = best_deg
 
     g_global_disc = fit_global_disc(X_tr_curr, X_tr_next, degree=2)
     models['global_edmd_disc'] = g_global_disc
@@ -1101,9 +1063,14 @@ if not args.skip_pendulum:
                                if args.pendulum_horizons else 'one_step')
     pendulum_headline_h_label = (f"rollout {args.pendulum_horizons[-1]}s"
                                  if args.pendulum_horizons else 'one_step')
+    biggest_pend_deg = (args.pendulum_edmd_degrees[-1]
+                        if args.pendulum_edmd_degrees else 2)
+    biggest_pend_N   = args.pendulum_N[-1] if args.pendulum_N else 8
     pendulum_pairs = [
-        ('Taylor-analytic N=8', 'Global EDMD deg=8', pendulum_headline_h_key,
-         f'Taylor-ana N=8 vs Global deg=8 ({pendulum_headline_h_label})'),
+        (f'Taylor-analytic N={biggest_pend_N}',
+         f'EDMD-disc deg={biggest_pend_deg}', pendulum_headline_h_key,
+         f'Taylor-ana N={biggest_pend_N} vs EDMD-disc deg={biggest_pend_deg} '
+         f'({pendulum_headline_h_label})'),
     ]
     for N in args.pendulum_N:
         pendulum_pairs.append(
@@ -1141,6 +1108,7 @@ DUFFING_ROLLOUT_INITS = [
 
 
 def duffing_predict_f_taylor(x, state):
+    """Taylor-analytic local-linear prediction of the velocity field f(x)."""
     k  = pick_cluster(x, state)
     c  = state['centers'][k]
     fc = state['f_centers'][k]
@@ -1148,33 +1116,27 @@ def duffing_predict_f_taylor(x, state):
     return fc + (Jk @ (x - c).unsqueeze(-1)).squeeze(-1)
 
 
-def duffing_predict_f_local_edmd(x, state, d):
-    k     = pick_cluster(x, state)
-    F_all = predict_f_all_clusters(x, state['centers'], state['M_ops'],
-                                   state['exps'], d)
-    return F_all[torch.arange(x.shape[0]), k]
+def _duffing_one_step_pairs(X, dt):
+    """Integrate each row of ``X`` forward by ``dt`` to produce x_{t+1}.
+
+    Used to build (x_t, x_{t+1}) pairs from arbitrary phase-space samples
+    (uniform / gaussian / etc.) for discrete-EDMD fitting and one-step
+    error evaluation.
+    """
+    next_states = np.array([
+        duffing_generate_trajectory(x.cpu().numpy(), n_steps=1, dt=dt)[1]
+        for x in X
+    ], dtype=np.float64)
+    return torch.tensor(next_states, dtype=torch.float64)
 
 
-def duffing_fit_global_edmd(X_tr, F_tr, degree, d):
-    exps = monomial_exponents(d, degree)
-    c    = X_tr.mean(dim=0)
-    r    = torch.ones(X_tr.shape[0], dtype=torch.float64)
-    M    = weighted_continuous_edmd(X_tr, F_tr, r, c, exps, ridge=1e-6)
-    return {'M': M, 'c': c, 'exps': exps}
+def duffing_eval_rollout_taylor(predict_fn, model, dt, n_steps, d, horizons):
+    """Taylor / Euler-stepped rollout error per horizon.
 
-
-def duffing_predict_global_edmd(x, g, d):
-    U   = x - g['c']
-    Phi = monomials(U, g['exps'])
-    return (Phi @ g['M'].T)[:, 1:d + 1]
-
-
-def duffing_eval_rollout(predict_fn, model, dt, n_steps, d, horizons,
-                         is_global=False):
-    """Mean rollout L2 error at each horizon (in seconds), averaged over inits.
-
-    Defensive against divergence (see ``_lorenz_rollout_inner`` for the
-    same NaN-handling protocol).
+    Used only for Variant A (Taylor-analytic / GMM-baseline), which models
+    the velocity field. The discrete-EDMD methods (global and local) use
+    ``duffing_disc_rollout_err`` / ``duffing_disc_local_rollout_err``
+    instead -- no Euler step, no derivatives.
     """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
     errs    = {h: [] for h in horizons}
@@ -1187,23 +1149,81 @@ def duffing_eval_rollout(predict_fn, model, dt, n_steps, d, horizons,
         for t in range(n_steps):
             cur = traj[t:t + 1]
             if not torch.isfinite(cur).all():
-                diverged_at  = t
-                traj[t:]     = float('nan')
-                break
+                diverged_at = t; traj[t:] = float('nan'); break
             try:
-                if is_global:
-                    f_hat = duffing_predict_global_edmd(cur, model, d)[0]
-                else:
-                    f_hat = predict_fn(cur, model)[0]
+                f_hat = predict_fn(cur, model)[0]
             except (ValueError, RuntimeError):
-                diverged_at    = t + 1
-                traj[t + 1:]   = float('nan')
-                break
+                diverged_at = t + 1; traj[t + 1:] = float('nan'); break
             nxt = traj[t] + dt * f_hat
             if not torch.isfinite(nxt).all():
-                diverged_at    = t + 1
-                traj[t + 1:]   = float('nan')
-                break
+                diverged_at = t + 1; traj[t + 1:] = float('nan'); break
+            traj[t + 1] = nxt
+        diff = torch.linalg.norm(traj - tru, dim=1)
+        for h, idx in indices.items():
+            v = diff[idx].item() if idx < diverged_at else float('nan')
+            errs[h].append(v if np.isfinite(v) else float('nan'))
+    out = {}
+    for h in horizons:
+        vals = np.array(errs[h], dtype=float)
+        out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+    return out
+
+
+def duffing_disc_rollout_err(model, inits, n_steps, dt, d, horizons):
+    """Discrete-EDMD rollout error (global): iterate Koopman matrix without Euler."""
+    indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
+    errs    = {h: [] for h in horizons}
+    for x0 in inits:
+        tru = torch.tensor(duffing_generate_trajectory(
+            x0.numpy(), n_steps=n_steps, dt=dt), dtype=torch.float64)
+        traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
+        traj[0]     = x0
+        diverged_at = n_steps + 1
+        for t in range(n_steps):
+            cur = traj[t:t + 1]
+            if not torch.isfinite(cur).all():
+                diverged_at = t; traj[t:] = float('nan'); break
+            try:
+                nxt = predict_next_disc(cur, model)[0]
+            except (ValueError, RuntimeError):
+                diverged_at = t + 1; traj[t + 1:] = float('nan'); break
+            if not torch.isfinite(nxt).all():
+                diverged_at = t + 1; traj[t + 1:] = float('nan'); break
+            traj[t + 1] = nxt
+        diff = torch.linalg.norm(traj - tru, dim=1)
+        for h, idx in indices.items():
+            v = diff[idx].item() if idx < diverged_at else float('nan')
+            errs[h].append(v if np.isfinite(v) else float('nan'))
+    out = {}
+    for h in horizons:
+        vals = np.array(errs[h], dtype=float)
+        out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+    return out
+
+
+def duffing_disc_local_rollout_err(state, inits, n_steps, dt, d, horizons):
+    """Discrete-EDMD rollout error (local per-cluster Koopman operators)."""
+    indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
+    errs    = {h: [] for h in horizons}
+    for x0 in inits:
+        tru = torch.tensor(duffing_generate_trajectory(
+            x0.numpy(), n_steps=n_steps, dt=dt), dtype=torch.float64)
+        traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
+        traj[0]     = x0
+        diverged_at = n_steps + 1
+        for t in range(n_steps):
+            cur = traj[t:t + 1]
+            if not torch.isfinite(cur).all():
+                diverged_at = t; traj[t:] = float('nan'); break
+            try:
+                k     = pick_cluster(cur, state)
+                preds = predict_next_all_disc(cur, state['centers'],
+                                              state['K_ops'], state['exps'], d)
+                nxt   = preds[0, k[0]]
+            except (ValueError, RuntimeError):
+                diverged_at = t + 1; traj[t + 1:] = float('nan'); break
+            if not torch.isfinite(nxt).all():
+                diverged_at = t + 1; traj[t + 1:] = float('nan'); break
             traj[t + 1] = nxt
         diff = torch.linalg.norm(traj - tru, dim=1)
         for h, idx in indices.items():
@@ -1217,7 +1237,16 @@ def duffing_eval_rollout(predict_fn, model, dt, n_steps, d, horizons,
 
 
 def _make_duffing_data(seed):
-    """Build train / test data for Duffing using args.duffing_distribution."""
+    """Build train / test data for Duffing using args.duffing_distribution.
+
+    Returns ``(train, test, X_tr_curr, X_tr_next, X_te_curr, X_te_next)``.
+    The first two are the standard ``{X, F, J_all}`` dicts used by the
+    Taylor-analytic / GMM-baseline (velocity-field) variants. The latter
+    four are consecutive-state pair tensors derived from those samples by
+    integrating each point one ``dt`` forward; they feed the discrete-
+    EDMD baselines (global and local) which require ``(x_t, x_{t+1})``
+    pairs and never touch derivative data.
+    """
     sampler = DUFFING_TRAIN_SAMPLERS.get(args.duffing_distribution)
     if sampler is None:
         raise ValueError(
@@ -1230,7 +1259,12 @@ def _make_duffing_data(seed):
         x_max   =args.duffing_test_box_x,
         xdot_max=args.duffing_test_box_xdot,
         seed=seed + 10000)
-    return train, test
+    dt = args.duffing_dt
+    X_tr_curr = torch.tensor(train['X'], dtype=torch.float64)
+    X_te_curr = torch.tensor(test ['X'], dtype=torch.float64)
+    X_tr_next = _duffing_one_step_pairs(X_tr_curr, dt)
+    X_te_next = _duffing_one_step_pairs(X_te_curr, dt)
+    return train, test, X_tr_curr, X_tr_next, X_te_curr, X_te_next
 
 
 def run_duffing_seed(seed):
@@ -1240,10 +1274,10 @@ def run_duffing_seed(seed):
     horizons  = list(args.duffing_horizons)
 
     # -- training and test data (distribution-dispatched) --------------------
-    train, test = _make_duffing_data(seed)
-    X_tr = torch.tensor(train['X'], dtype=torch.float64)
+    train, test, X_tr_curr, X_tr_next, X_te_curr, X_te_next = _make_duffing_data(seed)
+    X_tr = X_tr_curr
     F_tr = torch.tensor(train['F'], dtype=torch.float64)
-    X_te = torch.tensor(test ['X'], dtype=torch.float64)
+    X_te = X_te_curr
     F_te = torch.tensor(test ['F'], dtype=torch.float64)
 
     hp_base = {
@@ -1252,56 +1286,65 @@ def run_duffing_seed(seed):
         'kappa0':  1.0, 'Psi0': 1.0  * torch.eye(d, dtype=torch.float64),
         'nu0':     float(d + 2),
     }
+    hp_disc = {
+        'alpha0':  0.5, 'mu0': X_tr_curr.mean(dim=0),
+        'Lambda0': 0.01 * torch.eye(d, dtype=torch.float64),
+        'kappa0':  1.0, 'Psi0': 1.0  * torch.eye(d, dtype=torch.float64),
+        'nu0':     float(d + 2),
+    }
 
     results = {}
 
-    def _emit(name, F_pred, roll_fn):
-        one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
-        roll = roll_fn()
-        results[name] = {'one_step': one, **roll}
-
-    # -- Global continuous EDMD ----------------------------------------------
+    # ── Global discrete EDMD ────────────────────────────────────────────────
     for deg in args.duffing_edmd_degrees:
-        g = duffing_fit_global_edmd(X_tr, F_tr, degree=deg, d=d)
-        _emit(f"Global EDMD deg={deg}",
-              duffing_predict_global_edmd(X_te, g, d),
-              lambda g=g: duffing_eval_rollout(None, g, dt, n_roll, d, horizons,
-                                                is_global=True))
+        g    = fit_global_disc(X_tr_curr, X_tr_next, degree=deg)
+        pred = predict_next_disc(X_te_curr, g)
+        one  = torch.linalg.norm(pred - X_te_next, dim=1).mean().item()
+        roll = duffing_disc_rollout_err(g, DUFFING_ROLLOUT_INITS, n_roll, dt, d, horizons)
+        results[f"EDMD-disc deg={deg}"] = {'one_step': one, **roll}
 
-    # -- Local continuous EDMD (deg-2 and deg-3) -----------------------------
+    # ── Local discrete EDMD (deg-2 and deg-3) ──────────────────────────────
     for deg, N_list in [(2, args.duffing_le2_N), (3, args.duffing_le3_N)]:
         for N in N_list:
-            state, _, _ = fit_local_edmd_cont(
-                X_tr, F_tr, N=N, hp={**hp_base, 'sigma2': 'auto'},
-                degree=deg, n_iter=args.n_iter, n_restarts=args.n_restarts,
-                verbose=False)
-            _emit(f"local-EDMD d{deg} N={N}",
-                  duffing_predict_f_local_edmd(X_te, state, d),
-                  lambda s=state: duffing_eval_rollout(
-                      lambda x, m: duffing_predict_f_local_edmd(x, m, d),
-                      s, dt, n_roll, d, horizons))
+            state, _, _ = fit_local_edmd_disc(
+                X_tr_curr, X_tr_next, N=N,
+                hp={**hp_disc, 'sigma2': 'auto'}, degree=deg,
+                n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
+            k    = pick_cluster(X_te_curr, state)
+            pred = predict_next_all_disc(
+                X_te_curr, state['centers'], state['K_ops'], state['exps'], d)
+            one  = torch.linalg.norm(
+                pred[torch.arange(len(X_te_curr)), k] - X_te_next, dim=1
+            ).mean().item()
+            roll = duffing_disc_local_rollout_err(
+                state, DUFFING_ROLLOUT_INITS, n_roll, dt, d, horizons)
+            results[f"Local-EDMD-disc d{deg} N={N}"] = {'one_step': one, **roll}
 
-    # -- Taylor-analytic (residual-aware, exact f, J) ------------------------
+    # ── Taylor-analytic (Variant A: physics-aware, uses J) ─────────────────
     for N in args.duffing_N:
         state, _, _ = fit_taylor(
-            X_tr, F_tr, duffing_f, duffing_J, N=N, hp={**hp_base, 'sigma2': 'auto'},
+            X_tr, F_tr, duffing_f, duffing_J, N=N,
+            hp={**hp_base, 'sigma2': 'auto'},
             n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
-        _emit(f"Taylor-analytic N={N}",
-              duffing_predict_f_taylor(X_te, state),
-              lambda s=state: duffing_eval_rollout(
-                  duffing_predict_f_taylor, s, dt, n_roll, d, horizons))
+        F_pred = duffing_predict_f_taylor(X_te, state)
+        one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
+        roll = duffing_eval_rollout_taylor(
+            duffing_predict_f_taylor, state, dt, n_roll, d, horizons)
+        results[f"Taylor-analytic N={N}"] = {'one_step': one, **roll}
 
-    # -- GMM baseline (Taylor local model + sigma2 -> inf removes residual) -
+    # ── GMM baseline (Taylor local model + sigma2 -> inf removes residual) ─
     for N in args.duffing_N:
         state, _, _ = fit_taylor(
-            X_tr, F_tr, duffing_f, duffing_J, N=N, hp={**hp_base, 'sigma2': 1e10},
+            X_tr, F_tr, duffing_f, duffing_J, N=N,
+            hp={**hp_base, 'sigma2': 1e10},
             n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
-        _emit(f"GMM-baseline N={N}",
-              duffing_predict_f_taylor(X_te, state),
-              lambda s=state: duffing_eval_rollout(
-                  duffing_predict_f_taylor, s, dt, n_roll, d, horizons))
+        F_pred = duffing_predict_f_taylor(X_te, state)
+        one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
+        roll = duffing_eval_rollout_taylor(
+            duffing_predict_f_taylor, state, dt, n_roll, d, horizons)
+        results[f"GMM-baseline N={N}"] = {'one_step': one, **roll}
 
-    # -- Stash representative models for visualization -----------------------
+    # ── Representative models for visualization ────────────────────────────
     models = {}
     best_N = args.duffing_N[len(args.duffing_N) // 2]
     s_taylor, _, _ = fit_taylor(
@@ -1315,14 +1358,18 @@ def run_duffing_seed(seed):
         n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
     models['gmm'] = s_gmm
     if args.duffing_le2_N:
-        s_le2, _, _ = fit_local_edmd_cont(
-            X_tr, F_tr, N=args.duffing_le2_N[len(args.duffing_le2_N) // 2],
-            hp={**hp_base, 'sigma2': 'auto'}, degree=2,
+        s_le2, _, _ = fit_local_edmd_disc(
+            X_tr_curr, X_tr_next, N=args.duffing_le2_N[len(args.duffing_le2_N) // 2],
+            hp={**hp_disc, 'sigma2': 'auto'}, degree=2,
             n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
-        models['local_edmd_d2'] = s_le2
-    models['global_edmd_d2'] = duffing_fit_global_edmd(X_tr, F_tr, 2, d)
+        models['local_edmd_disc_d2'] = s_le2
+    if args.duffing_edmd_degrees:
+        models['edmd_disc'] = fit_global_disc(
+            X_tr_curr, X_tr_next, degree=args.duffing_edmd_degrees[0])
     models['X_tr'] = X_tr; models['F_tr'] = F_tr
     models['X_te'] = X_te; models['F_te'] = F_te
+    models['X_tr_curr'] = X_tr_curr; models['X_tr_next'] = X_tr_next
+    models['X_te_curr'] = X_te_curr; models['X_te_next'] = X_te_next
 
     return results, models
 
@@ -1362,15 +1409,15 @@ if not args.skip_duffing:
         deg0 = args.duffing_edmd_degrees[0]
         duffing_pairs.append(
             (f"Taylor-analytic N={args.duffing_N[-1]}",
-             f"Global EDMD deg={deg0}", headline_h_key,
-             f"Taylor N={args.duffing_N[-1]} vs Global deg={deg0} "
+             f"EDMD-disc deg={deg0}", headline_h_key,
+             f"Taylor N={args.duffing_N[-1]} vs EDMD-disc deg={deg0} "
              f"(rollout {args.duffing_horizons[-1]}s)"))
     if args.duffing_le2_N and args.duffing_edmd_degrees:
         deg0 = args.duffing_edmd_degrees[0]
         duffing_pairs.append(
-            (f"local-EDMD d2 N={args.duffing_le2_N[-1]}",
-             f"Global EDMD deg={deg0}", 'one_step',
-             f"local-EDMD d2 N={args.duffing_le2_N[-1]} vs Global deg={deg0}"))
+            (f"Local-EDMD-disc d2 N={args.duffing_le2_N[-1]}",
+             f"EDMD-disc deg={deg0}", 'one_step',
+             f"Local-EDMD-disc d2 N={args.duffing_le2_N[-1]} vs EDMD-disc deg={deg0}"))
     paired_tests("Duffing", duffing_runs, duffing_pairs)
 
     _json, _fig, _models = _out_paths("statistical_duffing")
