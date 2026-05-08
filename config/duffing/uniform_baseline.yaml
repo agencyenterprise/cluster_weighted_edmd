@@ -28,7 +28,15 @@ rollout:
   horizons: [1.0, 2.0, 5.0, 10.0, 20.0]
 
 methods:
-  N_list:     [2, 4, 8, 16]
-  edmd_degs:  [2, 3, 4, 5]
+  N_list:     [2, 4, 8, 16]      # Taylor-analytic and GMM-baseline cluster counts
+  edmd_degs:  [2, 3, 4, 5]       # Global EDMD-disc degrees (deg>=3 is polynomial-exact for Duffing)
+  # Local-EDMD-disc cluster counts at each polynomial lift degree. deg=3
+  # matches Duffing's exact-polynomial RHS — the apples-to-apples partition-
+  # vs-global comparison. deg=4 and deg=5 also match the higher-degree global
+  # baselines so the Pareto frontier is fully populated. Per-degree N is
+  # reduced as deg grows because per-cluster cost scales as N * M^2 with
+  # M = comb(2+deg, deg) (deg=5 -> M=21, M^2=441 per cluster).
   le2_N_list: [2, 4, 8, 16]
   le3_N_list: [2, 4, 8]
+  le4_N_list: [2, 4]
+  le5_N_list: [2, 4]

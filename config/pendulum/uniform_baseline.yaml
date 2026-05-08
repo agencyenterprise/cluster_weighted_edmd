@@ -23,3 +23,11 @@ rollout:
 methods:
   N_list:    [2, 4, 8, 16]
   edmd_degs: [2, 4, 6, 8]
+  # Local-EDMD-disc polynomial degrees to test. Pendulum has no exact
+  # polynomial degree (sin theta is non-polynomial), so the relevant
+  # comparison is between Local-EDMD-disc at the SAME degree as the global
+  # baseline rather than against a polynomial-exact floor. Adding deg=4
+  # matches the global EDMD-disc deg=4 reference; higher degrees (6, 8)
+  # blow up parameter count for the local variant (N * comb(2+8,8)^2 =
+  # 32400 params at N=16) so we keep the comparison at 4.
+  le_degrees: [2, 4]

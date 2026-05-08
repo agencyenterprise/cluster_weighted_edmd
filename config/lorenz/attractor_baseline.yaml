@@ -21,3 +21,7 @@ rollout:
 methods:
   N_list:    [5, 12, 20, 50]
   edmd_degs: [2, 3]
+  # Local-EDMD-disc polynomial degrees to test. deg=3 matches Lorenz's
+  # exact-polynomial-RHS floor, so it's the apples-to-apples partition-vs-
+  # global comparison; deg=2 is the legacy under-parameterized variant.
+  le_degrees: [2, 3]

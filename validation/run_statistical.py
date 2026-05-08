@@ -148,6 +148,14 @@ parser.add_argument('--pendulum-distribution', default='uniform',
                              'periodic_noise', 'trajectory'])
 parser.add_argument('--pendulum-distribution-params', type=_json_arg, default={})
 
+# Local-EDMD-disc degree sweep (per-system). Each system runs Local-EDMD-disc
+# at every degree in this list, with the configured N_list.  Default keeps
+# legacy degree=2 only behavior.  Setting e.g. [2, 3] on Lorenz also tests the
+# polynomial-exact-degree partitioned variant, which is the apples-to-apples
+# comparison vs global EDMD-disc deg=3.
+parser.add_argument('--lorenz-le-degrees',   type=int, nargs='+', default=[2])
+parser.add_argument('--pendulum-le-degrees', type=int, nargs='+', default=[2])
+
 # EM fitting
 parser.add_argument('--n-iter', type=int, default=100)
 parser.add_argument('--n-restarts', type=int, default=2)
@@ -185,6 +193,12 @@ parser.add_argument('--duffing-N',          type=int, nargs='+', default=[2, 4, 
 parser.add_argument('--duffing-edmd-degrees', type=int, nargs='+', default=[2, 3, 4, 5])
 parser.add_argument('--duffing-le2-N',      type=int, nargs='+', default=[2, 4, 8, 16])
 parser.add_argument('--duffing-le3-N',      type=int, nargs='+', default=[2, 4, 8])
+# Higher-degree Local-EDMD-disc for polynomial-exactness comparison.  Empty
+# by default; set in YAML's methods.le4_N_list / le5_N_list to enable.
+# At deg=5 (M=21, M^2=441) the per-cluster fit is much heavier; only set
+# small N (<=4) unless you have abundant compute.
+parser.add_argument('--duffing-le4-N',      type=int, nargs='+', default=[])
+parser.add_argument('--duffing-le5-N',      type=int, nargs='+', default=[])
 
 # Systems to run
 parser.add_argument('--skip-lorenz',   action='store_true')
@@ -269,8 +283,9 @@ def _apply_lorenz_config(cfg, args):
     args.lorenz_rollout_steps = r.get('rollout_steps', args.lorenz_rollout_steps)
     args.lorenz_horizons      = r.get('horizons',      args.lorenz_horizons)
     m = cfg.get('methods', {})
-    args.lorenz_N      = m.get('N_list',    args.lorenz_N)
-    args.edmd_degrees  = m.get('edmd_degs', args.edmd_degrees)
+    args.lorenz_N           = m.get('N_list',     args.lorenz_N)
+    args.edmd_degrees       = m.get('edmd_degs',  args.edmd_degrees)
+    args.lorenz_le_degrees  = m.get('le_degrees', args.lorenz_le_degrees)
     args.skip_pendulum = True
     args.skip_duffing  = True
 
@@ -293,8 +308,9 @@ def _apply_pendulum_config(cfg, args):
     args.pendulum_rollout_steps = r.get('rollout_steps', args.pendulum_rollout_steps)
     args.pendulum_horizons      = r.get('horizons',      args.pendulum_horizons)
     m = cfg.get('methods', {})
-    args.pendulum_N             = m.get('N_list',    args.pendulum_N)
-    args.pendulum_edmd_degrees  = m.get('edmd_degs', args.pendulum_edmd_degrees)
+    args.pendulum_N             = m.get('N_list',     args.pendulum_N)
+    args.pendulum_edmd_degrees  = m.get('edmd_degs',  args.pendulum_edmd_degrees)
+    args.pendulum_le_degrees    = m.get('le_degrees', args.pendulum_le_degrees)
     args.skip_lorenz  = True
     args.skip_duffing = True
 
@@ -320,6 +336,8 @@ def _apply_duffing_config(cfg, args):
     args.duffing_edmd_degrees  = m.get('edmd_degs',  args.duffing_edmd_degrees)
     args.duffing_le2_N         = m.get('le2_N_list', args.duffing_le2_N)
     args.duffing_le3_N         = m.get('le3_N_list', args.duffing_le3_N)
+    args.duffing_le4_N         = m.get('le4_N_list', args.duffing_le4_N)
+    args.duffing_le5_N         = m.get('le5_N_list', args.duffing_le5_N)
     args.skip_lorenz  = True
     args.skip_pendulum = True
 
@@ -770,22 +788,28 @@ def run_lorenz_seed(seed):
             'one_step': one_g, 'rel_pct': 100 * one_g / step_bl, **roll_g,
         }
 
-    # ── Local discrete EDMD ──────────────────────────────────────────────
-    for N in args.lorenz_N:
-        s_ld, _, _ = fit_local_edmd_disc(
-            X_tr_curr, X_tr_next, N=N, hp={**hp, 'sigma2': 'auto'},
-            degree=2, n_iter=args.n_iter, n_restarts=args.n_restarts,
-            verbose=False)
-        k = pick_cluster(X_te_in, s_ld)
-        pred = predict_next_all_disc(
-            X_te_in, s_ld['centers'], s_ld['K_ops'], s_ld['exps'], d)
-        one_ld = torch.linalg.norm(
-            pred[torch.arange(len(X_te_in)), k] - X_te_next, dim=1
-        ).mean().item()
-        roll_ld = lorenz_disc_local_rollout_err(s_ld, inits, rs, d, dt, horizons)
-        results[f'Local-EDMD-disc N={N}'] = {
-            'one_step': one_ld, 'rel_pct': 100 * one_ld / step_bl, **roll_ld,
-        }
+    # ── Local discrete EDMD (loop over configured degrees) ──────────────
+    for deg in args.lorenz_le_degrees:
+        for N in args.lorenz_N:
+            s_ld, _, _ = fit_local_edmd_disc(
+                X_tr_curr, X_tr_next, N=N, hp={**hp, 'sigma2': 'auto'},
+                degree=deg, n_iter=args.n_iter, n_restarts=args.n_restarts,
+                verbose=False)
+            k = pick_cluster(X_te_in, s_ld)
+            pred = predict_next_all_disc(
+                X_te_in, s_ld['centers'], s_ld['K_ops'], s_ld['exps'], d)
+            one_ld = torch.linalg.norm(
+                pred[torch.arange(len(X_te_in)), k] - X_te_next, dim=1
+            ).mean().item()
+            roll_ld = lorenz_disc_local_rollout_err(s_ld, inits, rs, d, dt, horizons)
+            # Backwards-compat label: degree 2 keeps the legacy
+            # "Local-EDMD-disc N=k" name; higher degrees use the disambiguated
+            # "Local-EDMD-disc d{deg} N=k" form (same convention as Duffing).
+            label = (f'Local-EDMD-disc N={N}' if deg == 2
+                     else f'Local-EDMD-disc d{deg} N={N}')
+            results[label] = {
+                'one_step': one_ld, 'rel_pct': 100 * one_ld / step_bl, **roll_ld,
+            }
 
     # Collect model states for visualization
     models = {}
@@ -977,21 +1001,24 @@ def run_pendulum_seed(seed):
         roll = pendulum_disc_rollout_err(g, rollout_inits, n_roll, dt, d, horizons)
         results[f'EDMD-disc deg={deg}'] = {'one_step': one, **roll}
 
-    # ── Local discrete EDMD ──────────────────────────────────────────────
-    for N in args.pendulum_N:
-        hp_disc = make_hp_pendulum(X_tr_curr, d)
-        s_ld, _, _ = fit_local_edmd_disc(
-            X_tr_curr, X_tr_next, N=N, hp={**hp_disc, 'sigma2': 'auto'},
-            degree=2, n_iter=args.n_iter, n_restarts=args.n_restarts,
-            verbose=False)
-        k = pick_cluster(X_te_disc_curr, s_ld)
-        preds = predict_next_all_disc(
-            X_te_disc_curr, s_ld['centers'], s_ld['K_ops'], s_ld['exps'], d)
-        one  = angular_dist(
-            preds[torch.arange(len(X_te_disc_curr)), k], X_te_disc_next
-        ).mean().item()
-        roll = pendulum_disc_local_rollout_err(s_ld, rollout_inits, n_roll, dt, d, horizons)
-        results[f'Local-EDMD-disc N={N}'] = {'one_step': one, **roll}
+    # ── Local discrete EDMD (loop over configured degrees) ──────────────
+    hp_disc = make_hp_pendulum(X_tr_curr, d)
+    for deg in args.pendulum_le_degrees:
+        for N in args.pendulum_N:
+            s_ld, _, _ = fit_local_edmd_disc(
+                X_tr_curr, X_tr_next, N=N, hp={**hp_disc, 'sigma2': 'auto'},
+                degree=deg, n_iter=args.n_iter, n_restarts=args.n_restarts,
+                verbose=False)
+            k = pick_cluster(X_te_disc_curr, s_ld)
+            preds = predict_next_all_disc(
+                X_te_disc_curr, s_ld['centers'], s_ld['K_ops'], s_ld['exps'], d)
+            one  = angular_dist(
+                preds[torch.arange(len(X_te_disc_curr)), k], X_te_disc_next
+            ).mean().item()
+            roll = pendulum_disc_local_rollout_err(s_ld, rollout_inits, n_roll, dt, d, horizons)
+            label = (f'Local-EDMD-disc N={N}' if deg == 2
+                     else f'Local-EDMD-disc d{deg} N={N}')
+            results[label] = {'one_step': one, **roll}
 
     # ── Taylor-analytic ──────────────────────────────────────────────────
     for N in args.pendulum_N:
@@ -1447,7 +1474,10 @@ def run_duffing_seed(seed):
         results[f"EDMD-disc deg={deg}"] = {'one_step': one, **roll}
 
     # ── Local discrete EDMD (deg-2 and deg-3) ──────────────────────────────
-    for deg, N_list in [(2, args.duffing_le2_N), (3, args.duffing_le3_N)]:
+    for deg, N_list in [(2, args.duffing_le2_N),
+                        (3, args.duffing_le3_N),
+                        (4, args.duffing_le4_N),
+                        (5, args.duffing_le5_N)]:
         for N in N_list:
             state, _, _ = fit_local_edmd_disc(
                 X_tr_curr, X_tr_next, N=N,
