@@ -494,19 +494,49 @@ def lorenz_rollout_truth(x0, n_steps, dt):
 
 
 def _lorenz_rollout_inner(x0_list, dt, n_steps, horizons, step_fn):
-    """Generic rollout-error evaluator: ``step_fn(traj[t:t+1])`` -> next state."""
+    """Generic rollout-error evaluator: ``step_fn(traj[t:t+1])`` -> next state.
+
+    Defensive against divergence: if a step produces non-finite values
+    (or ``step_fn`` itself errors on a non-finite input -- e.g. a Koopman
+    operator with unstable eigenvalues that drives the rollout to NaN),
+    the trajectory is filled with NaN from that step onward and per-init
+    errors at affected horizons are reported as NaN (not propagated as
+    an exception). Aggregation then uses ``np.nanmean`` so partially-
+    diverged inits still contribute.
+    """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
-    errs = {h: [] for h in horizons}
+    errs    = {h: [] for h in horizons}
     for x0 in x0_list:
         tru  = lorenz_rollout_truth(x0, n_steps, dt)
         traj = torch.zeros(n_steps + 1, 3, dtype=torch.float64)
-        traj[0] = x0
+        traj[0]     = x0
+        diverged_at = n_steps + 1
         for t in range(n_steps):
-            traj[t + 1] = step_fn(traj[t:t + 1])
+            cur = traj[t:t + 1]
+            if not torch.isfinite(cur).all():
+                diverged_at  = t
+                traj[t:]     = float('nan')
+                break
+            try:
+                nxt = step_fn(cur)
+            except (ValueError, RuntimeError):
+                diverged_at    = t + 1
+                traj[t + 1:]   = float('nan')
+                break
+            if not torch.isfinite(nxt).all():
+                diverged_at    = t + 1
+                traj[t + 1:]   = float('nan')
+                break
+            traj[t + 1] = nxt
         diff = torch.linalg.norm(traj - tru, dim=1)
         for h, idx in indices.items():
-            errs[h].append(diff[idx].item())
-    return {_horizon_key(h): float(np.mean(errs[h])) for h in horizons}
+            v = diff[idx].item() if idx < diverged_at else float('nan')
+            errs[h].append(v if np.isfinite(v) else float('nan'))
+    out = {}
+    for h in horizons:
+        vals = np.array(errs[h], dtype=float)
+        out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+    return out
 
 
 def lorenz_rollout_err(state, inits, n_steps, dt, horizons):
@@ -739,20 +769,45 @@ def pendulum_generate_trajectory_pairs(n_trajs, traj_len, dt, seed):
 
 
 def _pendulum_rollout_inner(inits, n_steps, dt, d, horizons, step_fn):
-    """Generic pendulum rollout-error eval with angular distance."""
+    """Generic pendulum rollout-error eval with angular distance.
+
+    Defensive against divergence (see ``_lorenz_rollout_inner`` for the
+    same NaN-handling protocol).
+    """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
-    errs = {h: [] for h in horizons}
+    errs    = {h: [] for h in horizons}
     for x0 in inits:
         tru = torch.tensor(generate_trajectory(x0.numpy(), n_steps=n_steps, dt=dt),
                            dtype=torch.float64)
         traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
-        traj[0] = x0
+        traj[0]     = x0
+        diverged_at = n_steps + 1
         for t in range(n_steps):
-            traj[t + 1] = step_fn(traj[t:t + 1])
+            cur = traj[t:t + 1]
+            if not torch.isfinite(cur).all():
+                diverged_at  = t
+                traj[t:]     = float('nan')
+                break
+            try:
+                nxt = step_fn(cur)
+            except (ValueError, RuntimeError):
+                diverged_at    = t + 1
+                traj[t + 1:]   = float('nan')
+                break
+            if not torch.isfinite(nxt).all():
+                diverged_at    = t + 1
+                traj[t + 1:]   = float('nan')
+                break
+            traj[t + 1] = nxt
         diff = angular_dist(traj, tru)
         for h, idx in indices.items():
-            errs[h].append(diff[idx].item())
-    return {_horizon_key(h): float(np.mean(errs[h])) for h in horizons}
+            v = diff[idx].item() if idx < diverged_at else float('nan')
+            errs[h].append(v if np.isfinite(v) else float('nan'))
+    out = {}
+    for h in horizons:
+        vals = np.array(errs[h], dtype=float)
+        out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+    return out
 
 
 def pendulum_disc_rollout_err(model, inits, n_steps, dt, d, horizons):
@@ -1116,24 +1171,49 @@ def duffing_predict_global_edmd(x, g, d):
 
 def duffing_eval_rollout(predict_fn, model, dt, n_steps, d, horizons,
                          is_global=False):
-    """Mean rollout L2 error at each horizon (in seconds), averaged over inits."""
+    """Mean rollout L2 error at each horizon (in seconds), averaged over inits.
+
+    Defensive against divergence (see ``_lorenz_rollout_inner`` for the
+    same NaN-handling protocol).
+    """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
-    errs = {h: [] for h in horizons}
+    errs    = {h: [] for h in horizons}
     for x0 in DUFFING_ROLLOUT_INITS:
         tru = torch.tensor(duffing_generate_trajectory(
             x0.numpy(), n_steps=n_steps, dt=dt), dtype=torch.float64)
         traj = torch.zeros(n_steps + 1, d, dtype=torch.float64)
-        traj[0] = x0
+        traj[0]     = x0
+        diverged_at = n_steps + 1
         for t in range(n_steps):
-            if is_global:
-                f_hat = duffing_predict_global_edmd(traj[t:t + 1], model, d)[0]
-            else:
-                f_hat = predict_fn(traj[t:t + 1], model)[0]
-            traj[t + 1] = traj[t] + dt * f_hat
+            cur = traj[t:t + 1]
+            if not torch.isfinite(cur).all():
+                diverged_at  = t
+                traj[t:]     = float('nan')
+                break
+            try:
+                if is_global:
+                    f_hat = duffing_predict_global_edmd(cur, model, d)[0]
+                else:
+                    f_hat = predict_fn(cur, model)[0]
+            except (ValueError, RuntimeError):
+                diverged_at    = t + 1
+                traj[t + 1:]   = float('nan')
+                break
+            nxt = traj[t] + dt * f_hat
+            if not torch.isfinite(nxt).all():
+                diverged_at    = t + 1
+                traj[t + 1:]   = float('nan')
+                break
+            traj[t + 1] = nxt
         diff = torch.linalg.norm(traj - tru, dim=1)
         for h, idx in indices.items():
-            errs[h].append(diff[idx].item())
-    return {_horizon_key(h): float(np.mean(errs[h])) for h in horizons}
+            v = diff[idx].item() if idx < diverged_at else float('nan')
+            errs[h].append(v if np.isfinite(v) else float('nan'))
+    out = {}
+    for h in horizons:
+        vals = np.array(errs[h], dtype=float)
+        out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+    return out
 
 
 def _make_duffing_data(seed):
