@@ -34,6 +34,20 @@ else
     CONFIGS=("$@")
 fi
 
+# Speed knobs (override via env vars).
+MAX_WORKERS="${MAX_WORKERS:-0}"
+N_ITER_CAP="${N_ITER_CAP:-}"
+N_RESTARTS_CAP="${N_RESTARTS_CAP:-}"
+N_TRAIN_CAP="${N_TRAIN_CAP:-}"
+N_TEST_CAP="${N_TEST_CAP:-}"
+ROLLOUT_STEPS_CAP="${ROLLOUT_STEPS_CAP:-}"
+EXTRA_FLAGS=(--max-workers "$MAX_WORKERS")
+[ -n "$N_ITER_CAP" ]         && EXTRA_FLAGS+=(--n-iter-cap         "$N_ITER_CAP")
+[ -n "$N_RESTARTS_CAP" ]     && EXTRA_FLAGS+=(--n-restarts-cap     "$N_RESTARTS_CAP")
+[ -n "$N_TRAIN_CAP" ]        && EXTRA_FLAGS+=(--n-train-cap        "$N_TRAIN_CAP")
+[ -n "$N_TEST_CAP" ]         && EXTRA_FLAGS+=(--n-test-cap         "$N_TEST_CAP")
+[ -n "$ROLLOUT_STEPS_CAP" ]  && EXTRA_FLAGS+=(--rollout-steps-cap  "$ROLLOUT_STEPS_CAP")
+
 N_CFG=${#CONFIGS[@]}
 
 echo "============================================================"
@@ -54,7 +68,7 @@ for cfg in "${CONFIGS[@]}"; do
     echo "############################################################"
     echo "##  [${idx}/${N_CFG}] ${cfg}"
     echo "############################################################"
-    python -m validation.run_statistical --config "$cfg"
+    python -m validation.run_statistical --config "$cfg" "${EXTRA_FLAGS[@]}"
     echo ""
 done
 

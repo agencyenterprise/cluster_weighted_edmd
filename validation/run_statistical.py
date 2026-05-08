@@ -31,7 +31,11 @@ Loop over all configs for a system (typical runpod batch)::
 
 import argparse
 import json
+import multiprocessing as mp
 import os
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import numpy as np
 import torch
 import yaml
@@ -39,6 +43,14 @@ import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 
 torch.set_default_dtype(torch.float64)
+# Cap intra-op torch threads so per-seed processes don't oversubscribe the
+# CPU when run in a process pool (each process otherwise tries to use all
+# cores for BLAS, which thrashes when N processes also fight for cores).
+torch.set_num_threads(1)
+try:
+    mp.set_start_method('fork', force=True)
+except RuntimeError:
+    pass
 
 from utils.paths import fig_path, data_path
 from utils.stats import confidence_interval, paired_test
@@ -179,6 +191,26 @@ parser.add_argument('--config', type=str, default=None,
                          "If provided, it sets the system, seeds, data, fit, rollout, and "
                          "method parameters from the YAML; other systems are skipped; "
                          "outputs are named after the config's `name` field.")
+
+# Speed knobs
+parser.add_argument('--max-workers', type=int, default=0,
+                    help="Number of seed-level parallel workers. 0 (default) "
+                         "auto-picks min(os.cpu_count(), len(seeds)). 1 = sequential.")
+parser.add_argument('--n-iter-cap', type=int, default=None,
+                    help="If set, cap n_iter at this value (overrides YAML/CLI default).")
+parser.add_argument('--n-restarts-cap', type=int, default=None,
+                    help="If set, cap n_restarts at this value (overrides YAML/CLI default).")
+parser.add_argument('--n-train-cap', type=int, default=None,
+                    help="If set, cap every system's n_train at this value. "
+                         "EM cost is ~linear in n_train; capping is the simplest "
+                         "way to trade quality for speed across the corpus without "
+                         "rewriting per-config YAMLs.")
+parser.add_argument('--n-test-cap', type=int, default=None,
+                    help="If set, cap every system's n_test at this value.")
+parser.add_argument('--rollout-steps-cap', type=int, default=None,
+                    help="If set, cap every system's rollout_steps at this value. "
+                         "Rollout cost is linear in this; horizons beyond cap*dt "
+                         "will saturate at the final reachable step.")
 
 args = parser.parse_args()
 
@@ -427,6 +459,27 @@ def _out_paths(default_stem: str):
 
 seeds = args.seeds
 N_SEEDS = len(seeds)
+
+# Apply CLI caps after YAML has been merged into args
+if args.n_iter_cap is not None:
+    args.n_iter = min(args.n_iter, args.n_iter_cap)
+if args.n_restarts_cap is not None:
+    args.n_restarts = min(args.n_restarts, args.n_restarts_cap)
+if args.n_train_cap is not None:
+    args.lorenz_n_train   = min(args.lorenz_n_train,   args.n_train_cap)
+    args.pendulum_n_train = min(args.pendulum_n_train, args.n_train_cap)
+    args.duffing_n_train  = min(args.duffing_n_train,  args.n_train_cap)
+if args.n_test_cap is not None:
+    args.pendulum_n_test = min(args.pendulum_n_test, args.n_test_cap)
+    args.duffing_n_test  = min(args.duffing_n_test,  args.n_test_cap)
+if args.rollout_steps_cap is not None:
+    args.lorenz_rollout_steps   = min(args.lorenz_rollout_steps,   args.rollout_steps_cap)
+    args.pendulum_rollout_steps = min(args.pendulum_rollout_steps, args.rollout_steps_cap)
+    args.duffing_rollout_steps  = min(args.duffing_rollout_steps,  args.rollout_steps_cap)
+
+# Resolve worker count
+if args.max_workers <= 0:
+    args.max_workers = max(1, min(os.cpu_count() or 1, N_SEEDS))
 
 print("=" * 80)
 print("  Statistical Validation")
@@ -946,29 +999,68 @@ def run_pendulum_seed(seed):
 # Run all seeds
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _accumulate_seed(all_runs, results):
+    """Fold a single seed's results dict into the shared all_runs dict."""
+    for method, metrics in results.items():
+        if method not in all_runs:
+            all_runs[method] = {m: [] for m in metrics}
+        for m, v in metrics.items():
+            all_runs[method][m].append(v)
+
+
 def run_system(name, run_fn):
-    all_runs = {}
-    best_models = None
-    best_seed = None
+    all_runs       = {}
+    best_models    = None
+    best_seed      = None
     best_total_err = float('inf')
+    n_workers      = max(1, min(args.max_workers, N_SEEDS))
 
-    for i, seed in enumerate(seeds):
-        print(f"\n  {name} — seed {seed} ({i + 1}/{N_SEEDS})")
-        results, models = run_fn(seed)
-        for method, metrics in results.items():
-            if method not in all_runs:
-                all_runs[method] = {m: [] for m in metrics}
-            for m, v in metrics.items():
-                all_runs[method][m].append(v)
+    print(f"\n  [{name}] running {N_SEEDS} seeds across "
+          f"{n_workers} worker process(es)")
+    t0 = time.time()
 
-        # Track best seed by average one_step error across all methods
-        total_err = np.mean([m['one_step'] for m in results.values() if 'one_step' in m])
-        if total_err < best_total_err:
-            best_total_err = total_err
-            best_models = models
-            best_seed = seed
+    if n_workers == 1:
+        for i, seed in enumerate(seeds):
+            print(f"\n  {name} — seed {seed} ({i + 1}/{N_SEEDS})")
+            results, models = run_fn(seed)
+            _accumulate_seed(all_runs, results)
+            total_err = np.mean(
+                [m['one_step'] for m in results.values() if 'one_step' in m])
+            if total_err < best_total_err:
+                best_total_err = total_err
+                best_models    = models
+                best_seed      = seed
+    else:
+        # Parallel: submit one task per seed, collect as they finish.
+        # `fork` start method (set at module load) lets each worker inherit
+        # the parsed `args` and torch state without re-running argparse / YAML.
+        with ProcessPoolExecutor(max_workers=n_workers) as ex:
+            future_to_seed = {ex.submit(run_fn, s): s for s in seeds}
+            n_done = 0
+            for fut in as_completed(future_to_seed):
+                seed = future_to_seed[fut]
+                try:
+                    results, models = fut.result()
+                except Exception as exc:
+                    print(f"  {name} seed {seed} FAILED: {exc!r}")
+                    raise
+                n_done += 1
+                _accumulate_seed(all_runs, results)
+                total_err = np.mean(
+                    [m['one_step'] for m in results.values() if 'one_step' in m])
+                elapsed = time.time() - t0
+                eta     = elapsed / n_done * (N_SEEDS - n_done)
+                print(f"  {name} — seed {seed} done "
+                      f"({n_done}/{N_SEEDS}, "
+                      f"avg one-step={total_err:.5f}, "
+                      f"elapsed={elapsed:.0f}s, eta={eta:.0f}s)")
+                if total_err < best_total_err:
+                    best_total_err = total_err
+                    best_models    = models
+                    best_seed      = seed
 
-    print(f"\n  Best seed for {name}: {best_seed} (avg one-step err: {best_total_err:.6f})")
+    print(f"\n  Best seed for {name}: {best_seed} "
+          f"(avg one-step err: {best_total_err:.6f}, total {time.time()-t0:.0f}s)")
     return all_runs, best_models, best_seed
 
 
@@ -1119,15 +1211,29 @@ def duffing_predict_f_taylor(x, state):
 def _duffing_one_step_pairs(X, dt):
     """Integrate each row of ``X`` forward by ``dt`` to produce x_{t+1}.
 
-    Used to build (x_t, x_{t+1}) pairs from arbitrary phase-space samples
-    (uniform / gaussian / etc.) for discrete-EDMD fitting and one-step
-    error evaluation.
+    Vectorized RK4: a single step of fourth-order Runge-Kutta evaluates the
+    Duffing vector field 4 times across the whole batch (numpy array ops),
+    producing all next-state predictions in O(N) total time. This replaces
+    a previous per-point ``solve_ivp`` loop that was O(N) calls (each with
+    its own adaptive-step setup), which dominated runtime when ``N_train``
+    was a few thousand.
     """
-    next_states = np.array([
-        duffing_generate_trajectory(x.cpu().numpy(), n_steps=1, dt=dt)[1]
-        for x in X
-    ], dtype=np.float64)
-    return torch.tensor(next_states, dtype=torch.float64)
+    Xnp = X.cpu().numpy() if hasattr(X, 'cpu') else np.asarray(X)
+    # duffing_f operates on a single state; vectorise over rows
+    def _f_batch(Xb):
+        # f(state) for Duffing is cheap; batch via numpy broadcasting
+        x  = Xb[:, 0]
+        xd = Xb[:, 1]
+        return np.column_stack((
+            xd,
+            -DUFFING_DELTA * xd + x - x ** 3,
+        ))
+    k1 = _f_batch(Xnp)
+    k2 = _f_batch(Xnp + 0.5 * dt * k1)
+    k3 = _f_batch(Xnp + 0.5 * dt * k2)
+    k4 = _f_batch(Xnp + dt       * k3)
+    Xn = Xnp + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+    return torch.tensor(Xn, dtype=torch.float64)
 
 
 def duffing_eval_rollout_taylor(predict_fn, model, dt, n_steps, d, horizons):
