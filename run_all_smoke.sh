@@ -27,6 +27,10 @@ for arg in "$@"; do
     esac
 done
 
+# Run identifier: outputs land under papers/data/$RUN_ID/ and papers/figures/$RUN_ID/.
+# Auto-pick a timestamp so back-to-back smokes don't overwrite each other.
+RUN_ID="${RUN_ID:-smoke_$(date +%Y-%m-%d_%H-%M-%S)}"
+
 CONFIGS=(
     config/smoke/duffing.yaml
     config/smoke/pendulum.yaml
@@ -40,6 +44,8 @@ NAMES=(
 
 echo "============================================================"
 echo "  Pipeline Smoke Test"
+echo "  Run ID:        ${RUN_ID}"
+echo "  Output dir:    papers/data/${RUN_ID}/   papers/analysis/${RUN_ID}/"
 echo "  ${#CONFIGS[@]} smoke config(s); analyze step: $([ $SKIP_ANALYZE = true ] && echo skip || echo run)"
 echo "============================================================"
 echo ""
@@ -52,7 +58,7 @@ for cfg in "${CONFIGS[@]}"; do
     echo "############################################################"
     echo "##  [${idx}/${#CONFIGS[@]}] ${cfg}"
     echo "############################################################"
-    python -m validation.run_statistical --config "$cfg"
+    python -m validation.run_statistical --config "$cfg" --run-id "$RUN_ID"
     echo ""
 done
 
@@ -64,8 +70,8 @@ echo "============================================================"
 fail=0
 for name in "${NAMES[@]}"; do
     for path in \
-        "papers/data/${name}.json" \
-        "papers/data/${name}_models.pt"
+        "papers/data/${RUN_ID}/${name}.json" \
+        "papers/data/${RUN_ID}/${name}_models.pt"
     do
         if [ -f "$path" ]; then
             size=$(wc -c < "$path" | tr -d ' ')
@@ -85,12 +91,15 @@ fi
 
 # -- Step 3: run analyzer ---------------------------------------------------
 
+ANALYSIS_DIR="papers/analysis/${RUN_ID}"
 if [ "$SKIP_ANALYZE" = false ]; then
     echo ""
     echo "============================================================"
-    echo "  Running analyzer over the smoke corpus"
+    echo "  Running analyzer over the smoke corpus (run ${RUN_ID})"
     echo "============================================================"
-    python -m validation.analyze_results
+    python -m validation.analyze_results \
+        --data-dir "papers/data/${RUN_ID}" \
+        --out-dir  "${ANALYSIS_DIR}"
 
     # -- Step 4: verify analyzer outputs ------------------------------------
     echo ""
@@ -98,15 +107,15 @@ if [ "$SKIP_ANALYZE" = false ]; then
     echo "  Verifying analyzer outputs"
     echo "============================================================"
     for path in \
-        "papers/analysis/all_results.csv" \
-        "papers/analysis/summary.csv" \
-        "papers/analysis/summary_duffing.md" \
-        "papers/analysis/summary_duffing.tex" \
-        "papers/analysis/summary_pendulum.md" \
-        "papers/analysis/summary_pendulum.tex" \
-        "papers/analysis/summary_lorenz.md" \
-        "papers/analysis/summary_lorenz.tex" \
-        "papers/analysis/paired_tests.md"
+        "${ANALYSIS_DIR}/all_results.csv" \
+        "${ANALYSIS_DIR}/summary.csv" \
+        "${ANALYSIS_DIR}/summary_duffing.md" \
+        "${ANALYSIS_DIR}/summary_duffing.tex" \
+        "${ANALYSIS_DIR}/summary_pendulum.md" \
+        "${ANALYSIS_DIR}/summary_pendulum.tex" \
+        "${ANALYSIS_DIR}/summary_lorenz.md" \
+        "${ANALYSIS_DIR}/summary_lorenz.tex" \
+        "${ANALYSIS_DIR}/paired_tests.md"
     do
         if [ -f "$path" ]; then
             size=$(wc -c < "$path" | tr -d ' ')
@@ -119,11 +128,11 @@ if [ "$SKIP_ANALYZE" = false ]; then
 
     # At least one bars chart and one Pareto plot per system
     for sys in duffing pendulum lorenz; do
-        bars=$(ls papers/analysis/bars_${sys}_*.png 2>/dev/null | wc -l | tr -d ' ')
-        par=$(ls papers/analysis/pareto_${sys}_*.png 2>/dev/null | wc -l | tr -d ' ')
+        bars=$(ls ${ANALYSIS_DIR}/bars_${sys}_*.png 2>/dev/null | wc -l | tr -d ' ')
+        par=$(ls ${ANALYSIS_DIR}/pareto_${sys}_*.png 2>/dev/null | wc -l | tr -d ' ')
         if [ "$bars" -ge 1 ] && [ "$par" -ge 1 ]; then
-            echo "  OK    papers/analysis/bars_${sys}_*.png   (${bars} files)"
-            echo "  OK    papers/analysis/pareto_${sys}_*.png (${par} files)"
+            echo "  OK    ${ANALYSIS_DIR}/bars_${sys}_*.png   (${bars} files)"
+            echo "  OK    ${ANALYSIS_DIR}/pareto_${sys}_*.png (${par} files)"
         else
             echo "  MISSING bars/pareto PNGs for ${sys} (bars=${bars}, pareto=${par})"
             fail=$((fail + 1))
@@ -139,10 +148,10 @@ fi
 
 echo ""
 echo "============================================================"
-echo "  PASS - smoke test complete."
-echo "  Per-config data: papers/data/smoke_<system>.{json,_models.pt}"
+echo "  PASS - smoke test complete (Run ID: ${RUN_ID})."
+echo "  Per-config data: papers/data/${RUN_ID}/smoke_<system>.{json,_models.pt}"
 if [ "$SKIP_ANALYZE" = false ]; then
-    echo "  Analysis:        papers/analysis/{summary_*,paired_tests}.{md,tex}"
-    echo "                   papers/analysis/{ablation,robustness}_*.png"
+    echo "  Analysis:        ${ANALYSIS_DIR}/{summary_*,paired_tests}.{md,tex}"
+    echo "                   ${ANALYSIS_DIR}/{bars,pareto}_*.png"
 fi
 echo "============================================================"

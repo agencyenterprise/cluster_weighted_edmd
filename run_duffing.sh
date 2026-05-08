@@ -34,6 +34,8 @@ else
     CONFIGS=("$@")
 fi
 
+RUN_ID="${RUN_ID:-$(date +%Y-%m-%d_%H-%M-%S)}"
+
 # Speed knobs (override via env vars).
 MAX_WORKERS="${MAX_WORKERS:-0}"
 N_ITER_CAP="${N_ITER_CAP:-}"
@@ -41,7 +43,7 @@ N_RESTARTS_CAP="${N_RESTARTS_CAP:-}"
 N_TRAIN_CAP="${N_TRAIN_CAP:-}"
 N_TEST_CAP="${N_TEST_CAP:-}"
 ROLLOUT_STEPS_CAP="${ROLLOUT_STEPS_CAP:-}"
-EXTRA_FLAGS=(--max-workers "$MAX_WORKERS")
+EXTRA_FLAGS=(--max-workers "$MAX_WORKERS" --run-id "$RUN_ID")
 [ -n "$N_ITER_CAP" ]         && EXTRA_FLAGS+=(--n-iter-cap         "$N_ITER_CAP")
 [ -n "$N_RESTARTS_CAP" ]     && EXTRA_FLAGS+=(--n-restarts-cap     "$N_RESTARTS_CAP")
 [ -n "$N_TRAIN_CAP" ]        && EXTRA_FLAGS+=(--n-train-cap        "$N_TRAIN_CAP")
@@ -52,6 +54,8 @@ N_CFG=${#CONFIGS[@]}
 
 echo "============================================================"
 echo "  Duffing Statistical Validation Suite"
+echo "  Run ID:        ${RUN_ID}"
+echo "  Output dir:    papers/data/${RUN_ID}/   papers/figures/${RUN_ID}/"
 echo "  ${N_CFG} config(s) to run:"
 for cfg in "${CONFIGS[@]}"; do
     echo "    - ${cfg}"
@@ -74,7 +78,7 @@ done
 
 echo ""
 echo "============================================================"
-echo "  All ${N_CFG} Duffing config(s) complete."
-echo "  Figures: papers/figures/<config_name>.png"
-echo "  Data:    papers/data/<config_name>.json"
+echo "  All ${N_CFG} Duffing config(s) complete (Run ID: ${RUN_ID})."
+echo "  Data:    papers/data/${RUN_ID}/<config_name>.json"
+echo "  Figures: papers/figures/${RUN_ID}/<config_name>.png"
 echo "============================================================"

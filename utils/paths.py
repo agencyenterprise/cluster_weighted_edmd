@@ -41,32 +41,44 @@ DATA_DIR = os.path.join(_ROOT, "papers", "data")
 def fig_path(filename: str) -> str:
     """Return the full path for a figure file under ``papers/figures/``.
 
+    The filename may include intermediate directory components (e.g.
+    ``"2026-05-08_15-30-42/lorenz_clusters.png"`` for a per-run subdir);
+    every intermediate directory is created on first call.
+
     Parameters
     ----------
     filename : str
-        File name (e.g. ``"lorenz_clusters.png"``).
+        File name; may contain ``/`` to nest under sub-directories.
 
     Returns
     -------
     str
-        Absolute path to the figure file. The directory is created if needed.
+        Absolute path to the figure file. The directory tree is created
+        as needed.
     """
-    os.makedirs(FIGURES_DIR, exist_ok=True)
-    return os.path.join(FIGURES_DIR, filename)
+    full = os.path.join(FIGURES_DIR, filename)
+    os.makedirs(os.path.dirname(full) or FIGURES_DIR, exist_ok=True)
+    return full
 
 
 def data_path(filename: str) -> str:
     """Return the full path for a data file under ``papers/data/``.
 
+    The filename may include intermediate directory components (e.g.
+    ``"2026-05-08_15-30-42/lorenz_baseline.json"`` for a per-run
+    subdir); every intermediate directory is created on first call.
+
     Parameters
     ----------
     filename : str
-        File name (e.g. ``"elbo_history.npy"``).
+        File name; may contain ``/`` to nest under sub-directories.
 
     Returns
     -------
     str
-        Absolute path to the data file. The directory is created if needed.
+        Absolute path to the data file. The directory tree is created
+        as needed.
     """
-    os.makedirs(DATA_DIR, exist_ok=True)
-    return os.path.join(DATA_DIR, filename)
+    full = os.path.join(DATA_DIR, filename)
+    os.makedirs(os.path.dirname(full) or DATA_DIR, exist_ok=True)
+    return full

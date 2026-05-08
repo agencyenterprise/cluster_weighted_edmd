@@ -1,0 +1,199 @@
+system,config_name,method,seed,metric,value
+duffing,smoke_duffing,EDMD-disc deg=2,1,one_step,0.05422763161312054
+duffing,smoke_duffing,EDMD-disc deg=2,42,one_step,0.050946875445609496
+duffing,smoke_duffing,EDMD-disc deg=2,101,one_step,0.04977501658934022
+duffing,smoke_duffing,EDMD-disc deg=2,1,r1s,0.6347634247623238
+duffing,smoke_duffing,EDMD-disc deg=2,42,r1s,0.6018053428641879
+duffing,smoke_duffing,EDMD-disc deg=2,101,r1s,0.6988099225187765
+duffing,smoke_duffing,EDMD-disc deg=2,1,r5s,0.745653129969065
+duffing,smoke_duffing,EDMD-disc deg=2,42,r5s,0.722236881542685
+duffing,smoke_duffing,EDMD-disc deg=2,101,r5s,0.7731218110818879
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,1,one_step,0.021205775340183447
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,42,one_step,0.007854718446475348
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,101,one_step,0.00677414821600205
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,1,r1s,0.22001853240107905
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,42,r1s,0.16415675515627023
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,101,r1s,0.08599890183509726
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,1,r5s,0.8101463021697043
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,42,r5s,0.4574769035154735
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,101,r5s,0.4178152901003003
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,1,one_step,0.0033084852899981365
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,42,one_step,0.003217890816431822
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,101,one_step,0.0009515599775213591
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,1,r1s,0.04113380916495162
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,42,r1s,0.057237385642431846
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,101,r1s,0.003906361886930091
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,1,r5s,0.16299885503273154
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,42,r5s,0.24410847963667576
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,101,r5s,0.023758125531164388
+duffing,smoke_duffing,Taylor-analytic N=2,1,one_step,2.247313629943004
+duffing,smoke_duffing,Taylor-analytic N=2,42,one_step,2.0035607548631744
+duffing,smoke_duffing,Taylor-analytic N=2,101,one_step,1.7893739095209076
+duffing,smoke_duffing,Taylor-analytic N=2,1,r1s,1.493529386347205
+duffing,smoke_duffing,Taylor-analytic N=2,42,r1s,1.4897870568793552
+duffing,smoke_duffing,Taylor-analytic N=2,101,r1s,1.497236906038522
+duffing,smoke_duffing,Taylor-analytic N=2,1,r5s,60.03044657334723
+duffing,smoke_duffing,Taylor-analytic N=2,42,r5s,59.61887946234155
+duffing,smoke_duffing,Taylor-analytic N=2,101,r5s,60.712823791941716
+duffing,smoke_duffing,Taylor-analytic N=4,1,one_step,2.2257459807292452
+duffing,smoke_duffing,Taylor-analytic N=4,42,one_step,0.3326708714043062
+duffing,smoke_duffing,Taylor-analytic N=4,101,one_step,0.3128193672077327
+duffing,smoke_duffing,Taylor-analytic N=4,1,r1s,1.4624872813447014
+duffing,smoke_duffing,Taylor-analytic N=4,42,r1s,0.11191592607166315
+duffing,smoke_duffing,Taylor-analytic N=4,101,r1s,0.12521592563390627
+duffing,smoke_duffing,Taylor-analytic N=4,1,r5s,58.222789083508054
+duffing,smoke_duffing,Taylor-analytic N=4,42,r5s,0.6290496290705707
+duffing,smoke_duffing,Taylor-analytic N=4,101,r5s,0.617325935275766
+duffing,smoke_duffing,GMM-baseline N=2,1,one_step,2.2468928304258986
+duffing,smoke_duffing,GMM-baseline N=2,42,one_step,0.9821818430905404
+duffing,smoke_duffing,GMM-baseline N=2,101,one_step,1.77418524545969
+duffing,smoke_duffing,GMM-baseline N=2,1,r1s,1.4915985562655074
+duffing,smoke_duffing,GMM-baseline N=2,42,r1s,0.6597851818240779
+duffing,smoke_duffing,GMM-baseline N=2,101,r1s,1.480837399310848
+duffing,smoke_duffing,GMM-baseline N=2,1,r5s,60.27774123093657
+duffing,smoke_duffing,GMM-baseline N=2,42,r5s,1.6058879694195536
+duffing,smoke_duffing,GMM-baseline N=2,101,r5s,58.019898391300195
+duffing,smoke_duffing,GMM-baseline N=4,1,one_step,1.1196191885365439
+duffing,smoke_duffing,GMM-baseline N=4,42,one_step,0.8600943920699475
+duffing,smoke_duffing,GMM-baseline N=4,101,one_step,0.9370202546377385
+duffing,smoke_duffing,GMM-baseline N=4,1,r1s,0.6363382699987106
+duffing,smoke_duffing,GMM-baseline N=4,42,r1s,0.5010340953526019
+duffing,smoke_duffing,GMM-baseline N=4,101,r1s,0.5002301852431595
+duffing,smoke_duffing,GMM-baseline N=4,1,r5s,0.8385526831425325
+duffing,smoke_duffing,GMM-baseline N=4,42,r5s,1.9076918100058777
+duffing,smoke_duffing,GMM-baseline N=4,101,r5s,1.2539494722046407
+lorenz,smoke_lorenz,EDMD-pk deg-2,1,one_step,0.07788765742063648
+lorenz,smoke_lorenz,EDMD-pk deg-2,42,one_step,0.07257223673659399
+lorenz,smoke_lorenz,EDMD-pk deg-2,101,one_step,0.049658670403133987
+lorenz,smoke_lorenz,EDMD-pk deg-2,1,rel_pct,11.231810604912816
+lorenz,smoke_lorenz,EDMD-pk deg-2,42,rel_pct,8.02199761926533
+lorenz,smoke_lorenz,EDMD-pk deg-2,101,rel_pct,5.584351649944137
+lorenz,smoke_lorenz,EDMD-disc deg-2,1,one_step,0.07788765742034971
+lorenz,smoke_lorenz,EDMD-disc deg-2,42,one_step,0.07257223673344958
+lorenz,smoke_lorenz,EDMD-disc deg-2,101,one_step,0.049658670402979
+lorenz,smoke_lorenz,EDMD-disc deg-2,1,rel_pct,11.23181060487146
+lorenz,smoke_lorenz,EDMD-disc deg-2,42,rel_pct,8.021997618917752
+lorenz,smoke_lorenz,EDMD-disc deg-2,101,rel_pct,5.584351649926708
+lorenz,smoke_lorenz,EDMD-disc deg-2,1,r0_5s,0.3231454445286216
+lorenz,smoke_lorenz,EDMD-disc deg-2,42,r0_5s,1.3181756099992161
+lorenz,smoke_lorenz,EDMD-disc deg-2,101,r0_5s,0.7514707809690999
+lorenz,smoke_lorenz,EDMD-disc deg-2,1,r1s,1.7445801418243627
+lorenz,smoke_lorenz,EDMD-disc deg-2,42,r1s,1.7824538616440542
+lorenz,smoke_lorenz,EDMD-disc deg-2,101,r1s,1.223972258458944
+lorenz,smoke_lorenz,Taylor N=5,1,one_step,1.1889704039878095
+lorenz,smoke_lorenz,Taylor N=5,42,one_step,0.8016904100714896
+lorenz,smoke_lorenz,Taylor N=5,101,one_step,0.5960180168085112
+lorenz,smoke_lorenz,Taylor N=5,1,rel_pct,171.4557971658743
+lorenz,smoke_lorenz,Taylor N=5,42,rel_pct,88.61733977311013
+lorenz,smoke_lorenz,Taylor N=5,101,rel_pct,67.02503648488717
+lorenz,smoke_lorenz,Taylor N=5,1,r0_5s,19.57594884914243
+lorenz,smoke_lorenz,Taylor N=5,42,r0_5s,21.578459537884413
+lorenz,smoke_lorenz,Taylor N=5,101,r0_5s,13.94542773911697
+lorenz,smoke_lorenz,Taylor N=5,1,r1s,35.92074031619925
+lorenz,smoke_lorenz,Taylor N=5,42,r1s,23.511944643497714
+lorenz,smoke_lorenz,Taylor N=5,101,r1s,24.564515531451576
+lorenz,smoke_lorenz,GMM N=5,1,one_step,1.2149070217632851
+lorenz,smoke_lorenz,GMM N=5,42,one_step,0.8529338992148362
+lorenz,smoke_lorenz,GMM N=5,101,one_step,0.6476599637356143
+lorenz,smoke_lorenz,GMM N=5,1,rel_pct,175.19599411406205
+lorenz,smoke_lorenz,GMM N=5,42,rel_pct,94.28169802353587
+lorenz,smoke_lorenz,GMM N=5,101,rel_pct,72.8324169319983
+lorenz,smoke_lorenz,GMM N=5,1,r0_5s,15.935010200200631
+lorenz,smoke_lorenz,GMM N=5,42,r0_5s,18.60326714096243
+lorenz,smoke_lorenz,GMM N=5,101,r0_5s,19.29003164486285
+lorenz,smoke_lorenz,GMM N=5,1,r1s,21.449276730602687
+lorenz,smoke_lorenz,GMM N=5,42,r1s,11.335239752162606
+lorenz,smoke_lorenz,GMM N=5,101,r1s,20.681123706760484
+lorenz,smoke_lorenz,Taylor N=12,1,one_step,0.9224473731159503
+lorenz,smoke_lorenz,Taylor N=12,42,one_step,0.6733906089543022
+lorenz,smoke_lorenz,Taylor N=12,101,one_step,0.47728272003086647
+lorenz,smoke_lorenz,Taylor N=12,1,rel_pct,133.0217717536925
+lorenz,smoke_lorenz,Taylor N=12,42,rel_pct,74.43532271815948
+lorenz,smoke_lorenz,Taylor N=12,101,rel_pct,53.67269247156455
+lorenz,smoke_lorenz,Taylor N=12,1,r0_5s,17.681436821357345
+lorenz,smoke_lorenz,Taylor N=12,42,r0_5s,16.979494970889338
+lorenz,smoke_lorenz,Taylor N=12,101,r0_5s,11.547289818146544
+lorenz,smoke_lorenz,Taylor N=12,1,r1s,25.167145050763327
+lorenz,smoke_lorenz,Taylor N=12,42,r1s,11.046282678787094
+lorenz,smoke_lorenz,Taylor N=12,101,r1s,15.864738088095047
+lorenz,smoke_lorenz,GMM N=12,1,one_step,1.191004192998817
+lorenz,smoke_lorenz,GMM N=12,42,one_step,0.7690458725309501
+lorenz,smoke_lorenz,GMM N=12,101,one_step,0.5928999028191405
+lorenz,smoke_lorenz,GMM N=12,1,rel_pct,171.7490802576821
+lorenz,smoke_lorenz,GMM N=12,42,rel_pct,85.0088744121386
+lorenz,smoke_lorenz,GMM N=12,101,rel_pct,66.67438986346339
+lorenz,smoke_lorenz,GMM N=12,1,r0_5s,14.982809061350238
+lorenz,smoke_lorenz,GMM N=12,42,r0_5s,18.43330533386347
+lorenz,smoke_lorenz,GMM N=12,101,r0_5s,14.6031565971763
+lorenz,smoke_lorenz,GMM N=12,1,r1s,26.851540967010646
+lorenz,smoke_lorenz,GMM N=12,42,r1s,14.922547985478424
+lorenz,smoke_lorenz,GMM N=12,101,r1s,18.23642661471909
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,1,one_step,0.37546836772631154
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,42,one_step,0.6085421953687763
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,101,one_step,0.1114951268668393
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,1,rel_pct,54.144517040261356
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,42,rel_pct,67.26710188345687
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,101,rel_pct,12.53815276617375
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,1,r0_5s,4.014264644079172
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,42,r0_5s,1.0510786244467794
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,101,r0_5s,2.7414832753386364
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,1,r1s,6.0929974587929925
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,42,r1s,15.365150137212245
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,101,r1s,2.0202050554524718
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,1,one_step,0.06797544121406199
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,42,one_step,0.06652396387639434
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,101,one_step,0.3764668627407046
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,1,rel_pct,9.80241679857535
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,42,rel_pct,7.353432990875927
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,101,rel_pct,42.335473926878805
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,1,r0_5s,1.0519238872709393
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,42,r0_5s,0.4558790380132874
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,101,r0_5s,0.021730794738070165
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,1,r1s,4.1377593222809415
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,42,r1s,1.8123608994457052
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,101,r1s,0.05149020954167592
+pendulum,smoke_pendulum,EDMD-disc deg=2,1,one_step,0.11628349123916536
+pendulum,smoke_pendulum,EDMD-disc deg=2,42,one_step,0.13325701937180517
+pendulum,smoke_pendulum,EDMD-disc deg=2,101,one_step,0.1441478459141868
+pendulum,smoke_pendulum,EDMD-disc deg=2,1,r1s,0.9871673970595906
+pendulum,smoke_pendulum,EDMD-disc deg=2,42,r1s,1.3319642457090197
+pendulum,smoke_pendulum,EDMD-disc deg=2,101,r1s,1.1569495157152259
+pendulum,smoke_pendulum,EDMD-disc deg=2,1,r5s,1.8201256247786202
+pendulum,smoke_pendulum,EDMD-disc deg=2,42,r5s,2.4553060441996406
+pendulum,smoke_pendulum,EDMD-disc deg=2,101,r5s,2.1205512646582325
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,1,one_step,0.11881807990719662
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,42,one_step,0.10255233493609978
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,101,one_step,0.16030200668277794
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,1,r1s,0.7024086318832636
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,42,r1s,0.38800768806331754
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,101,r1s,0.4128826385057181
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,1,r5s,1.1911398965618645
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,42,r5s,2.4664593403956845
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,101,r5s,1.6465360745618525
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,1,one_step,0.0009370768459392676
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,42,one_step,0.0010929223986248118
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,101,one_step,0.13817606801919652
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,1,r1s,0.0083854838686124
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,42,r1s,0.017602868855425224
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,101,r1s,0.16478640843340098
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,1,r5s,0.11443691666342437
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,42,r5s,0.3640350940535192
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,101,r5s,1.1797926963814305
+pendulum,smoke_pendulum,Taylor-analytic N=2,1,one_step,1.0299977249632406
+pendulum,smoke_pendulum,Taylor-analytic N=2,42,one_step,0.3986593643088244
+pendulum,smoke_pendulum,Taylor-analytic N=2,101,one_step,0.8569298167706247
+pendulum,smoke_pendulum,Taylor-analytic N=2,1,r1s,0.6373029764313116
+pendulum,smoke_pendulum,Taylor-analytic N=2,42,r1s,0.44256055585975684
+pendulum,smoke_pendulum,Taylor-analytic N=2,101,r1s,0.6388740827843933
+pendulum,smoke_pendulum,Taylor-analytic N=2,1,r5s,1.0748185894141682
+pendulum,smoke_pendulum,Taylor-analytic N=2,42,r5s,0.8031314817295205
+pendulum,smoke_pendulum,Taylor-analytic N=2,101,r5s,1.0758401685076038
+pendulum,smoke_pendulum,Taylor-analytic N=4,1,one_step,0.06909316732613698
+pendulum,smoke_pendulum,Taylor-analytic N=4,42,one_step,0.08108896082900272
+pendulum,smoke_pendulum,Taylor-analytic N=4,101,one_step,0.1137203445280819
+pendulum,smoke_pendulum,Taylor-analytic N=4,1,r1s,0.11001021616804903
+pendulum,smoke_pendulum,Taylor-analytic N=4,42,r1s,0.06252676339036853
+pendulum,smoke_pendulum,Taylor-analytic N=4,101,r1s,0.13890990827313177
+pendulum,smoke_pendulum,Taylor-analytic N=4,1,r5s,1.0247257180304992
+pendulum,smoke_pendulum,Taylor-analytic N=4,42,r5s,0.2088350930193937
+pendulum,smoke_pendulum,Taylor-analytic N=4,101,r5s,1.034489698494762

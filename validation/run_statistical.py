@@ -47,10 +47,20 @@ torch.set_default_dtype(torch.float64)
 # CPU when run in a process pool (each process otherwise tries to use all
 # cores for BLAS, which thrashes when N processes also fight for cores).
 torch.set_num_threads(1)
-try:
-    mp.set_start_method('fork', force=True)
-except RuntimeError:
-    pass
+# Multiprocessing start method:
+#   - Linux: default 'fork' is fast (no module re-import per worker) and fine.
+#   - macOS: default 'spawn' is required (Objective-C runtime is NOT fork-safe;
+#     forking + PyTorch crashes the worker process). Spawn is slower because
+#     each worker re-imports this module (re-parses argparse, re-loads the
+#     YAML config, re-imports torch), but the per-config wall-clock benefit
+#     of N parallel seeds still dominates the startup cost.
+# Leave the default in place rather than forcing 'fork' globally.
+import sys as _sys
+if _sys.platform.startswith('linux'):
+    try:
+        mp.set_start_method('fork', force=True)
+    except RuntimeError:
+        pass
 
 from utils.paths import fig_path, data_path
 from utils.stats import confidence_interval, paired_test
@@ -211,6 +221,14 @@ parser.add_argument('--rollout-steps-cap', type=int, default=None,
                     help="If set, cap every system's rollout_steps at this value. "
                          "Rollout cost is linear in this; horizons beyond cap*dt "
                          "will saturate at the final reachable step.")
+
+parser.add_argument('--run-id', type=str, default=None,
+                    help="Optional run identifier (e.g. a timestamp). When set, "
+                         "all per-config outputs are written under "
+                         "papers/data/<run-id>/ and papers/figures/<run-id>/, "
+                         "so multiple invocations can coexist without "
+                         "overwriting each other. Empty (default) keeps the "
+                         "legacy flat layout.")
 
 args = parser.parse_args()
 
@@ -447,14 +465,20 @@ if args.config is not None:
 def _out_paths(default_stem: str):
     """Return (json_path, fig_path, models_path) for this run.
 
-    With ``--config <name>``, outputs are namespaced by the config name so
-    multiple configs do not overwrite each other; without it, the legacy
-    ``statistical_<system>`` stem is used.
+    Layout:
+      - With ``--run-id <id>``, every output is written under
+        ``papers/data/<id>/`` (and ``papers/figures/<id>/``), so multiple
+        invocations of ``run_all.sh`` (each with a distinct timestamp run-id)
+        coexist without overwriting.
+      - With ``--config <name>``, the per-file stem is the config's
+        ``name:`` field; without it, the legacy ``statistical_<system>``
+        stem is used.
     """
-    stem = CONFIG_NAME if CONFIG_NAME is not None else default_stem
-    return (data_path(f"{stem}.json"),
-            fig_path(f"{stem}.png"),
-            data_path(f"{stem}_models.pt"))
+    stem   = CONFIG_NAME if CONFIG_NAME is not None else default_stem
+    prefix = f"{args.run_id}/" if getattr(args, 'run_id', None) else ""
+    return (data_path(f"{prefix}{stem}.json"),
+            fig_path(f"{prefix}{stem}.png"),
+            data_path(f"{prefix}{stem}_models.pt"))
 
 
 seeds = args.seeds
@@ -480,6 +504,19 @@ if args.rollout_steps_cap is not None:
 # Resolve worker count
 if args.max_workers <= 0:
     args.max_workers = max(1, min(os.cpu_count() or 1, N_SEEDS))
+
+# Multiprocessing safety on macOS: 'spawn' (the only safe start method for
+# PyTorch on macOS) re-imports the module in each worker, but the child's
+# argparse runs with a stripped sys.argv, so the YAML-loaded `args` does
+# NOT propagate. Workers would silently fall back to defaults. Until the
+# per-seed runners take args explicitly, force sequential on macOS.
+if _sys.platform == 'darwin' and args.max_workers > 1:
+    print(f"[warning] macOS detected; PyTorch+multiprocessing isn't reliably "
+          f"safe under either fork (Objective-C runtime) or spawn (argparse "
+          f"state isn't inherited). Forcing --max-workers=1.")
+    print("[warning] Run on Linux (e.g., runpod) for the {n}x parallel speedup."
+          .format(n=args.max_workers))
+    args.max_workers = 1
 
 print("=" * 80)
 print("  Statistical Validation")

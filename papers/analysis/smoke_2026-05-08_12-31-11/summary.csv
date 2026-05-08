@@ -1,0 +1,67 @@
+system,config_name,method,metric,n,mean,ci
+duffing,smoke_duffing,EDMD-disc deg=2,one_step,3.0,0.051649841216023416,0.005733498434304357
+duffing,smoke_duffing,EDMD-disc deg=2,r1s,3.0,0.6451262300484294,0.1225315353493033
+duffing,smoke_duffing,EDMD-disc deg=2,r5s,3.0,0.747003940864546,0.06326936023075352
+duffing,smoke_duffing,GMM-baseline N=2,one_step,3.0,1.6677533063253762,1.5874578569767064
+duffing,smoke_duffing,GMM-baseline N=2,r1s,3.0,1.2107403791334777,1.1853598021689529
+duffing,smoke_duffing,GMM-baseline N=2,r5s,3.0,39.967842530552105,82.57671818578487
+duffing,smoke_duffing,GMM-baseline N=4,one_step,3.0,0.9722446117480766,0.3311351516049948
+duffing,smoke_duffing,GMM-baseline N=4,r1s,3.0,0.545867516864824,0.19463467775584337
+duffing,smoke_duffing,GMM-baseline N=4,r5s,3.0,1.3333979884510168,1.3388987643366663
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,one_step,3.0,0.011944880667553615,0.019968362949321417
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,r1s,3.0,0.1567247297974822,0.16722770778782753
+duffing,smoke_duffing,Local-EDMD-disc d2 N=2,r5s,3.0,0.5618128319284926,0.5365127614359599
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,one_step,3.0,0.002492645361317106,0.0033172866202233003
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,r1s,3.0,0.03409251889810452,0.06795078666667935
+duffing,smoke_duffing,Local-EDMD-disc d2 N=4,r5s,3.0,0.14362182006685723,0.2768467749322368
+duffing,smoke_duffing,Taylor-analytic N=2,one_step,3.0,2.0134160981090288,0.5691876866534211
+duffing,smoke_duffing,Taylor-analytic N=2,r1s,3.0,1.4935177830883608,0.0092532592918811
+duffing,smoke_duffing,Taylor-analytic N=2,r5s,3.0,60.12071660921017,1.3725620883365852
+duffing,smoke_duffing,Taylor-analytic N=4,one_step,3.0,0.9570787397804281,2.7294286580529676
+duffing,smoke_duffing,Taylor-analytic N=4,r1s,3.0,0.5665397110167569,1.927546418886611
+duffing,smoke_duffing,Taylor-analytic N=4,r5s,3.0,19.82305488261813,82.61036187291413
+lorenz,smoke_lorenz,EDMD-disc deg-2,one_step,3.0,0.06670618818559276,0.03726428652652408
+lorenz,smoke_lorenz,EDMD-disc deg-2,r0_5s,3.0,0.7975972784989792,1.2398734167014507
+lorenz,smoke_lorenz,EDMD-disc deg-2,r1s,3.0,1.583668753975787,0.7752530996555267
+lorenz,smoke_lorenz,EDMD-disc deg-2,rel_pct,3.0,8.279386624571975,7.036354595077502
+lorenz,smoke_lorenz,EDMD-pk deg-2,one_step,3.0,0.06670618818678815,0.03726428652809808
+lorenz,smoke_lorenz,EDMD-pk deg-2,rel_pct,3.0,8.279386624707426,7.036354595071216
+lorenz,smoke_lorenz,GMM N=12,one_step,3.0,0.8509833227829692,0.7635137578876718
+lorenz,smoke_lorenz,GMM N=12,r0_5s,3.0,16.006423664130004,5.242266329657985
+lorenz,smoke_lorenz,GMM N=12,r1s,3.0,20.003505189069386,15.296549395047847
+lorenz,smoke_lorenz,GMM N=12,rel_pct,3.0,107.8107815110947,139.4244916835843
+lorenz,smoke_lorenz,GMM N=5,one_step,3.0,0.9051669615712452,0.7134646154968326
+lorenz,smoke_lorenz,GMM N=5,r0_5s,3.0,17.942769662008637,4.402768755277655
+lorenz,smoke_lorenz,GMM N=5,r1s,3.0,17.821880063175257,13.987458295105368
+lorenz,smoke_lorenz,GMM N=5,rel_pct,3.0,114.1033696898654,134.10316629076394
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,one_step,3.0,0.17032208927705364,0.4434883505159292
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,r0_5s,3.0,0.5098445733407656,1.2848268146350872
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,r1s,3.0,2.000536810422774,5.091547003169488
+lorenz,smoke_lorenz,Local-EDMD-disc N=12,rel_pct,3.0,19.830441238776697,48.51112969494212
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,one_step,3.0,0.36516856332064235,0.6177642023906627
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,r0_5s,3.0,2.6022755146215295,3.692645388410951
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,r1s,3.0,7.826117550485903,16.98951683692339
+lorenz,smoke_lorenz,Local-EDMD-disc N=5,rel_pct,3.0,44.64992389663066,70.97964124728585
+lorenz,smoke_lorenz,Taylor N=12,one_step,3.0,0.6910402340337063,0.5542273466271039
+lorenz,smoke_lorenz,Taylor N=12,r0_5s,3.0,15.402740536797744,8.340029754674319
+lorenz,smoke_lorenz,Taylor N=12,r1s,3.0,17.359388605881822,17.83139826104875
+lorenz,smoke_lorenz,Taylor N=12,rel_pct,3.0,87.04326231447219,102.22126174894908
+lorenz,smoke_lorenz,Taylor N=5,one_step,3.0,0.8622262769559367,0.7479134988826553
+lorenz,smoke_lorenz,Taylor N=5,r0_5s,3.0,18.36661204204794,9.831244587636169
+lorenz,smoke_lorenz,Taylor N=5,r1s,3.0,27.999066830382844,17.092177984086216
+lorenz,smoke_lorenz,Taylor N=5,rel_pct,3.0,109.03272447462386,136.9442034060372
+pendulum,smoke_pendulum,EDMD-disc deg=2,one_step,3.0,0.13122945217505244,0.03488324117625898
+pendulum,smoke_pendulum,EDMD-disc deg=2,r1s,3.0,1.158693719494612,0.4282778657140345
+pendulum,smoke_pendulum,EDMD-disc deg=2,r5s,3.0,2.131994311212164,0.7893218046651558
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,one_step,3.0,0.12722414050869144,0.07397362271309876
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,r1s,3.0,0.5010996528174331,0.4341820036238751
+pendulum,smoke_pendulum,Local-EDMD-disc N=2,r5s,3.0,1.7680451038398004,1.6054589285946903
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,one_step,3.0,0.046735355754586864,0.19671891035200434
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,r1s,3.0,0.06359158705247954,0.21800391107165076
+pendulum,smoke_pendulum,Local-EDMD-disc N=4,r5s,3.0,0.5527549023661247,1.3841286950660197
+pendulum,smoke_pendulum,Taylor-analytic N=2,one_step,3.0,0.76186230201423,0.8103979337970584
+pendulum,smoke_pendulum,Taylor-analytic N=2,r1s,3.0,0.5729125383584873,0.28043644624615616
+pendulum,smoke_pendulum,Taylor-analytic N=2,r5s,3.0,0.9845967465504307,0.390393070588036
+pendulum,smoke_pendulum,Taylor-analytic N=4,one_step,3.0,0.0879674908944072,0.057371313358941925
+pendulum,smoke_pendulum,Taylor-analytic N=4,r1s,3.0,0.10381562927718312,0.09580452808479563
+pendulum,smoke_pendulum,Taylor-analytic N=4,r5s,3.0,0.756016836514885,1.1772289803146596
