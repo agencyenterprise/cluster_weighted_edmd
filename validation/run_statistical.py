@@ -1032,6 +1032,18 @@ def run_pendulum_seed(seed):
             pendulum_predict_f_taylor, s, rollout_inits, n_roll, dt, d, horizons)
         results[f'Taylor-analytic N={N}'] = {'one_step': one, **roll}
 
+    # ── GMM-baseline (geometry-only Taylor: sigma2=1e10 disables residual term) ──
+    for N in args.pendulum_N:
+        s, _, _ = fit_taylor(
+            X_tr, F_tr, pendulum_f, pendulum_J,
+            N=N, hp={**hp, 'sigma2': 1e10},
+            n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
+        F_pred = pendulum_predict_f_taylor(X_te, s)
+        one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
+        roll = pendulum_eval_rollout(
+            pendulum_predict_f_taylor, s, rollout_inits, n_roll, dt, d, horizons)
+        results[f'GMM-baseline N={N}'] = {'one_step': one, **roll}
+
     # Collect model states for visualization
     models = {}
     best_N = args.pendulum_N[len(args.pendulum_N) // 2]
