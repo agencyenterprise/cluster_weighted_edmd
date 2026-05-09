@@ -1224,12 +1224,21 @@ if not args.skip_lorenz:
     report("LORENZ", lorenz_runs, lorenz_metrics)
 
     lorenz_pairs = []
+    # Within-Taylor ablation: residual-aware vs geometry-only at matched K
     for N in args.lorenz_N:
         lorenz_pairs.append(
             (f'CW-Taylor K={N}', f'GMM-Taylor K={N}', 'one_step', f'CW-Taylor vs GMM-Taylor K={N}'))
+    # Within-EDMD ablation: residual-aware vs geometry-only at matched (q, K)
+    for deg in args.lorenz_le_degrees:
+        for N in args.lorenz_N:
+            lorenz_pairs.append(
+                (f'CW-EDMD q={deg}, K={N}', f'GMM-EDMD q={deg}, K={N}', 'one_step',
+                 f'CW-EDMD vs GMM-EDMD q={deg}, K={N}'))
+    # CW-Taylor vs EDMD
     for N in args.lorenz_N:
         lorenz_pairs.append(
             (f'CW-Taylor K={N}', 'EDMD q=2', 'one_step', f'CW-Taylor K={N} vs EDMD q=2'))
+    # CW-EDMD vs EDMD
     for N in args.lorenz_N:
         lorenz_pairs.append(
             (f'CW-EDMD q=2, K={N}', 'EDMD q=2', 'one_step',
@@ -1274,6 +1283,18 @@ if not args.skip_pendulum:
          f'CW-Taylor K={biggest_pend_N} vs EDMD q={biggest_pend_deg} '
          f'({pendulum_headline_h_label})'),
     ]
+    # Within-Taylor ablation: residual-aware vs geometry-only at matched K
+    for N in args.pendulum_N:
+        pendulum_pairs.append(
+            (f'CW-Taylor K={N}', f'GMM-Taylor K={N}', 'one_step',
+             f'CW-Taylor vs GMM-Taylor K={N}'))
+    # Within-EDMD ablation: residual-aware vs geometry-only at matched (q, K)
+    for deg in args.pendulum_le_degrees:
+        for N in args.pendulum_N:
+            pendulum_pairs.append(
+                (f'CW-EDMD q={deg}, K={N}', f'GMM-EDMD q={deg}, K={N}', 'one_step',
+                 f'CW-EDMD vs GMM-EDMD q={deg}, K={N}'))
+    # CW-EDMD vs EDMD
     for N in args.pendulum_N:
         pendulum_pairs.append(
             (f'CW-EDMD q=2, K={N}', f'EDMD q=2', 'one_step',
@@ -1637,6 +1658,7 @@ if not args.skip_duffing:
     headline_h_key = _horizon_key(args.duffing_horizons[-1]) if args.duffing_horizons else 'one_step'
 
     duffing_pairs = []
+    # Within-Taylor ablation: residual-aware vs geometry-only at matched K
     for N in args.duffing_N:
         duffing_pairs.append(
             (f"CW-Taylor K={N}", f"GMM-Taylor K={N}", 'one_step',
@@ -1644,6 +1666,15 @@ if not args.skip_duffing:
         duffing_pairs.append(
             (f"CW-Taylor K={N}", f"GMM-Taylor K={N}", headline_h_key,
              f"CW-Taylor vs GMM-Taylor K={N} (rollout {args.duffing_horizons[-1]}s)"))
+    # Within-EDMD ablation: residual-aware vs geometry-only at matched (q, K)
+    for deg, N_list in [(2, args.duffing_le2_N),
+                        (3, args.duffing_le3_N),
+                        (4, args.duffing_le4_N),
+                        (5, args.duffing_le5_N)]:
+        for N in N_list:
+            duffing_pairs.append(
+                (f"CW-EDMD q={deg}, K={N}", f"GMM-EDMD q={deg}, K={N}", 'one_step',
+                 f"CW-EDMD vs GMM-EDMD q={deg}, K={N}"))
     if args.duffing_edmd_degrees:
         deg0 = args.duffing_edmd_degrees[0]
         duffing_pairs.append(
