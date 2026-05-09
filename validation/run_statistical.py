@@ -759,7 +759,7 @@ def run_lorenz_seed(seed):
         pred = predict_next_disc(X_te_in, g)
         one = torch.linalg.norm(pred - X_te_next, dim=1).mean().item()
         roll = lorenz_disc_rollout_err(g, inits, rs, dt, horizons)
-        results[f'EDMD-disc deg-{deg}'] = {
+        results[f'EDMD q={deg}'] = {
             'one_step': one, 'rel_pct': 100 * one / step_bl, **roll,
         }
 
@@ -773,7 +773,7 @@ def run_lorenz_seed(seed):
                                verbose=False)
         one_o = lorenz_one_step_err(s_o, X_te_in, X_te_next, dt)
         roll_o = lorenz_rollout_err(s_o, inits, rs, dt, horizons)
-        results[f'Taylor N={N}'] = {
+        results[f'CW-Taylor K={N}'] = {
             'one_step': one_o, 'rel_pct': 100 * one_o / step_bl, **roll_o,
         }
 
@@ -784,7 +784,7 @@ def run_lorenz_seed(seed):
                                verbose=False)
         one_g = lorenz_one_step_err(s_g, X_te_in, X_te_next, dt)
         roll_g = lorenz_rollout_err(s_g, inits, rs, dt, horizons)
-        results[f'GMM N={N}'] = {
+        results[f'GMM-Taylor K={N}'] = {
             'one_step': one_g, 'rel_pct': 100 * one_g / step_bl, **roll_g,
         }
 
@@ -805,10 +805,28 @@ def run_lorenz_seed(seed):
             # Backwards-compat label: degree 2 keeps the legacy
             # "Local-EDMD-disc N=k" name; higher degrees use the disambiguated
             # "Local-EDMD-disc d{deg} N=k" form (same convention as Duffing).
-            label = (f'Local-EDMD-disc N={N}' if deg == 2
-                     else f'Local-EDMD-disc d{deg} N={N}')
+            label = f'CW-EDMD q={deg}, K={N}'
             results[label] = {
                 'one_step': one_ld, 'rel_pct': 100 * one_ld / step_bl, **roll_ld,
+            }
+
+    # ── GMM-clustered EDMD ablation (sigma2=1e10 disables residual term) ──
+    for deg in args.lorenz_le_degrees:
+        for N in args.lorenz_N:
+            s_gmm_ld, _, _ = fit_local_edmd_disc(
+                X_tr_curr, X_tr_next, N=N, hp={**hp, 'sigma2': 1e10},
+                degree=deg, n_iter=args.n_iter, n_restarts=args.n_restarts,
+                verbose=False)
+            k = pick_cluster(X_te_in, s_gmm_ld)
+            pred = predict_next_all_disc(
+                X_te_in, s_gmm_ld['centers'], s_gmm_ld['K_ops'], s_gmm_ld['exps'], d)
+            one_g = torch.linalg.norm(
+                pred[torch.arange(len(X_te_in)), k] - X_te_next, dim=1
+            ).mean().item()
+            roll_g = lorenz_disc_local_rollout_err(s_gmm_ld, inits, rs, d, dt, horizons)
+            label = f'GMM-EDMD q={deg}, K={N}'
+            results[label] = {
+                'one_step': one_g, 'rel_pct': 100 * one_g / step_bl, **roll_g,
             }
 
     # Collect model states for visualization
@@ -999,7 +1017,7 @@ def run_pendulum_seed(seed):
         pred = predict_next_disc(X_te_disc_curr, g)
         one  = angular_dist(pred, X_te_disc_next).mean().item()
         roll = pendulum_disc_rollout_err(g, rollout_inits, n_roll, dt, d, horizons)
-        results[f'EDMD-disc deg={deg}'] = {'one_step': one, **roll}
+        results[f'EDMD q={deg}'] = {'one_step': one, **roll}
 
     # ── Local discrete EDMD (loop over configured degrees) ──────────────
     hp_disc = make_hp_pendulum(X_tr_curr, d)
@@ -1016,9 +1034,25 @@ def run_pendulum_seed(seed):
                 preds[torch.arange(len(X_te_disc_curr)), k], X_te_disc_next
             ).mean().item()
             roll = pendulum_disc_local_rollout_err(s_ld, rollout_inits, n_roll, dt, d, horizons)
-            label = (f'Local-EDMD-disc N={N}' if deg == 2
-                     else f'Local-EDMD-disc d{deg} N={N}')
+            label = f'CW-EDMD q={deg}, K={N}'
             results[label] = {'one_step': one, **roll}
+
+    # ── GMM-clustered EDMD ablation (sigma2=1e10 disables residual term) ──
+    for deg in args.pendulum_le_degrees:
+        for N in args.pendulum_N:
+            s_gmm_ld, _, _ = fit_local_edmd_disc(
+                X_tr_curr, X_tr_next, N=N, hp={**hp_disc, 'sigma2': 1e10},
+                degree=deg, n_iter=args.n_iter, n_restarts=args.n_restarts,
+                verbose=False)
+            k = pick_cluster(X_te_disc_curr, s_gmm_ld)
+            preds = predict_next_all_disc(
+                X_te_disc_curr, s_gmm_ld['centers'], s_gmm_ld['K_ops'], s_gmm_ld['exps'], d)
+            one_g = angular_dist(
+                preds[torch.arange(len(X_te_disc_curr)), k], X_te_disc_next
+            ).mean().item()
+            roll_g = pendulum_disc_local_rollout_err(s_gmm_ld, rollout_inits, n_roll, dt, d, horizons)
+            label = f'GMM-EDMD q={deg}, K={N}'
+            results[label] = {'one_step': one_g, **roll_g}
 
     # ── Taylor-analytic ──────────────────────────────────────────────────
     for N in args.pendulum_N:
@@ -1030,7 +1064,7 @@ def run_pendulum_seed(seed):
         one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
         roll = pendulum_eval_rollout(
             pendulum_predict_f_taylor, s, rollout_inits, n_roll, dt, d, horizons)
-        results[f'Taylor-analytic N={N}'] = {'one_step': one, **roll}
+        results[f'CW-Taylor K={N}'] = {'one_step': one, **roll}
 
     # ── GMM-baseline (geometry-only Taylor: sigma2=1e10 disables residual term) ──
     for N in args.pendulum_N:
@@ -1042,7 +1076,7 @@ def run_pendulum_seed(seed):
         one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
         roll = pendulum_eval_rollout(
             pendulum_predict_f_taylor, s, rollout_inits, n_roll, dt, d, horizons)
-        results[f'GMM-baseline N={N}'] = {'one_step': one, **roll}
+        results[f'GMM-Taylor K={N}'] = {'one_step': one, **roll}
 
     # Collect model states for visualization
     models = {}
@@ -1192,14 +1226,14 @@ if not args.skip_lorenz:
     lorenz_pairs = []
     for N in args.lorenz_N:
         lorenz_pairs.append(
-            (f'Taylor N={N}', f'GMM N={N}', 'one_step', f'Taylor vs GMM N={N}'))
+            (f'CW-Taylor K={N}', f'GMM-Taylor K={N}', 'one_step', f'CW-Taylor vs GMM-Taylor K={N}'))
     for N in args.lorenz_N:
         lorenz_pairs.append(
-            (f'Taylor N={N}', 'EDMD-disc deg-2', 'one_step', f'Taylor N={N} vs EDMD-disc deg-2'))
+            (f'CW-Taylor K={N}', 'EDMD q=2', 'one_step', f'CW-Taylor K={N} vs EDMD q=2'))
     for N in args.lorenz_N:
         lorenz_pairs.append(
-            (f'Local-EDMD-disc N={N}', 'EDMD-disc deg-2', 'one_step',
-             f'Local-EDMD N={N} vs EDMD-disc deg-2'))
+            (f'CW-EDMD q=2, K={N}', 'EDMD q=2', 'one_step',
+             f'CW-EDMD q=2 K={N} vs EDMD q=2'))
     paired_tests("Lorenz", lorenz_runs, lorenz_pairs)
 
     _json, _fig, _models = _out_paths("statistical_lorenz")
@@ -1235,19 +1269,19 @@ if not args.skip_pendulum:
                         if args.pendulum_edmd_degrees else 2)
     biggest_pend_N   = args.pendulum_N[-1] if args.pendulum_N else 8
     pendulum_pairs = [
-        (f'Taylor-analytic N={biggest_pend_N}',
-         f'EDMD-disc deg={biggest_pend_deg}', pendulum_headline_h_key,
-         f'Taylor-ana N={biggest_pend_N} vs EDMD-disc deg={biggest_pend_deg} '
+        (f'CW-Taylor K={biggest_pend_N}',
+         f'EDMD q={biggest_pend_deg}', pendulum_headline_h_key,
+         f'CW-Taylor K={biggest_pend_N} vs EDMD q={biggest_pend_deg} '
          f'({pendulum_headline_h_label})'),
     ]
     for N in args.pendulum_N:
         pendulum_pairs.append(
-            (f'Local-EDMD-disc N={N}', f'EDMD-disc deg=2', 'one_step',
-             f'Local-EDMD-disc N={N} vs EDMD-disc deg=2'))
+            (f'CW-EDMD q=2, K={N}', f'EDMD q=2', 'one_step',
+             f'CW-EDMD q=2, K={N} vs EDMD q=2'))
     for N in args.pendulum_N:
         pendulum_pairs.append(
-            (f'Local-EDMD-disc N={N}', f'EDMD-disc deg=2', pendulum_headline_h_key,
-             f'Local-EDMD-disc N={N} vs EDMD-disc deg=2 ({pendulum_headline_h_label})'))
+            (f'CW-EDMD q=2, K={N}', f'EDMD q=2', pendulum_headline_h_key,
+             f'CW-EDMD q=2, K={N} vs EDMD q=2 ({pendulum_headline_h_label})'))
     paired_tests("Pendulum", pendulum_runs, pendulum_pairs)
 
     _json, _fig, _models = _out_paths("statistical_pendulum")
@@ -1483,7 +1517,7 @@ def run_duffing_seed(seed):
         pred = predict_next_disc(X_te_curr, g)
         one  = torch.linalg.norm(pred - X_te_next, dim=1).mean().item()
         roll = duffing_disc_rollout_err(g, DUFFING_ROLLOUT_INITS, n_roll, dt, d, horizons)
-        results[f"EDMD-disc deg={deg}"] = {'one_step': one, **roll}
+        results[f"EDMD q={deg}"] = {'one_step': one, **roll}
 
     # ── Local discrete EDMD (deg-2 and deg-3) ──────────────────────────────
     for deg, N_list in [(2, args.duffing_le2_N),
@@ -1503,7 +1537,27 @@ def run_duffing_seed(seed):
             ).mean().item()
             roll = duffing_disc_local_rollout_err(
                 state, DUFFING_ROLLOUT_INITS, n_roll, dt, d, horizons)
-            results[f"Local-EDMD-disc d{deg} N={N}"] = {'one_step': one, **roll}
+            results[f"CW-EDMD q={deg}, K={N}"] = {'one_step': one, **roll}
+
+    # ── GMM-clustered EDMD ablation (sigma2=1e10 disables residual term) ────
+    for deg, N_list in [(2, args.duffing_le2_N),
+                        (3, args.duffing_le3_N),
+                        (4, args.duffing_le4_N),
+                        (5, args.duffing_le5_N)]:
+        for N in N_list:
+            state, _, _ = fit_local_edmd_disc(
+                X_tr_curr, X_tr_next, N=N,
+                hp={**hp_disc, 'sigma2': 1e10}, degree=deg,
+                n_iter=args.n_iter, n_restarts=args.n_restarts, verbose=False)
+            k    = pick_cluster(X_te_curr, state)
+            pred = predict_next_all_disc(
+                X_te_curr, state['centers'], state['K_ops'], state['exps'], d)
+            one  = torch.linalg.norm(
+                pred[torch.arange(len(X_te_curr)), k] - X_te_next, dim=1
+            ).mean().item()
+            roll = duffing_disc_local_rollout_err(
+                state, DUFFING_ROLLOUT_INITS, n_roll, dt, d, horizons)
+            results[f"GMM-EDMD q={deg}, K={N}"] = {'one_step': one, **roll}
 
     # ── Taylor-analytic (Variant A: physics-aware, uses J) ─────────────────
     for N in args.duffing_N:
@@ -1515,7 +1569,7 @@ def run_duffing_seed(seed):
         one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
         roll = duffing_eval_rollout_taylor(
             duffing_predict_f_taylor, state, dt, n_roll, d, horizons)
-        results[f"Taylor-analytic N={N}"] = {'one_step': one, **roll}
+        results[f"CW-Taylor K={N}"] = {'one_step': one, **roll}
 
     # ── GMM baseline (Taylor local model + sigma2 -> inf removes residual) ─
     for N in args.duffing_N:
@@ -1527,7 +1581,7 @@ def run_duffing_seed(seed):
         one  = torch.linalg.norm(F_pred - F_te, dim=1).mean().item()
         roll = duffing_eval_rollout_taylor(
             duffing_predict_f_taylor, state, dt, n_roll, d, horizons)
-        results[f"GMM-baseline N={N}"] = {'one_step': one, **roll}
+        results[f"GMM-Taylor K={N}"] = {'one_step': one, **roll}
 
     # ── Representative models for visualization ────────────────────────────
     models = {}
@@ -1585,24 +1639,24 @@ if not args.skip_duffing:
     duffing_pairs = []
     for N in args.duffing_N:
         duffing_pairs.append(
-            (f"Taylor-analytic N={N}", f"GMM-baseline N={N}", 'one_step',
-             f"Taylor-ana vs GMM at N={N}"))
+            (f"CW-Taylor K={N}", f"GMM-Taylor K={N}", 'one_step',
+             f"CW-Taylor vs GMM-Taylor K={N}"))
         duffing_pairs.append(
-            (f"Taylor-analytic N={N}", f"GMM-baseline N={N}", headline_h_key,
-             f"Taylor-ana vs GMM at N={N} (rollout {args.duffing_horizons[-1]}s)"))
+            (f"CW-Taylor K={N}", f"GMM-Taylor K={N}", headline_h_key,
+             f"CW-Taylor vs GMM-Taylor K={N} (rollout {args.duffing_horizons[-1]}s)"))
     if args.duffing_edmd_degrees:
         deg0 = args.duffing_edmd_degrees[0]
         duffing_pairs.append(
-            (f"Taylor-analytic N={args.duffing_N[-1]}",
-             f"EDMD-disc deg={deg0}", headline_h_key,
-             f"Taylor N={args.duffing_N[-1]} vs EDMD-disc deg={deg0} "
+            (f"CW-Taylor K={args.duffing_N[-1]}",
+             f"EDMD q={deg0}", headline_h_key,
+             f"CW-Taylor K={args.duffing_N[-1]} vs EDMD q={deg0} "
              f"(rollout {args.duffing_horizons[-1]}s)"))
     if args.duffing_le2_N and args.duffing_edmd_degrees:
         deg0 = args.duffing_edmd_degrees[0]
         duffing_pairs.append(
-            (f"Local-EDMD-disc d2 N={args.duffing_le2_N[-1]}",
-             f"EDMD-disc deg={deg0}", 'one_step',
-             f"Local-EDMD-disc d2 N={args.duffing_le2_N[-1]} vs EDMD-disc deg={deg0}"))
+            (f"CW-EDMD q=2, K={args.duffing_le2_N[-1]}",
+             f"EDMD q={deg0}", 'one_step',
+             f"CW-EDMD q=2, K={args.duffing_le2_N[-1]} vs EDMD q={deg0}"))
     paired_tests("Duffing", duffing_runs, duffing_pairs)
 
     _json, _fig, _models = _out_paths("statistical_duffing")

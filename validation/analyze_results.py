@@ -258,32 +258,57 @@ def summary_tables(agg: pd.DataFrame, metrics, out_dir: Path):
 # -- Paired tests aggregated across configs -----------------------------------
 
 def _candidate_pairs(methods, system):
-    """Heuristic pairs of (residual-aware, baseline) to compare."""
+    """Heuristic pairs of (residual-aware, baseline) to compare.
+
+    Pair categories built here:
+      - CW-Taylor vs GMM-Taylor at matched K   (within-Taylor ablation)
+      - CW-EDMD  vs GMM-EDMD  at matched (q, K) (within-EDMD ablation)
+      - CW-Taylor vs EDMD                       (largest K vs lowest q)
+      - CW-EDMD  vs EDMD                        (largest K vs lowest q)
+    """
     pairs = []
 
     def _find(pattern):
-        rx = re.compile(pattern)
+        rx = re.compile(pattern, re.IGNORECASE)
         return [m for m in methods if rx.search(m)]
 
-    # Taylor-analytic vs GMM-baseline at matched N
-    for N in (2, 4, 8, 16, 5, 12, 20, 50):
-        a = [m for m in _find(rf"Taylor[ -].*N=\s*{N}\b") if 'Taylor' in m]
-        b = [m for m in _find(rf"GMM.*N=\s*{N}\b") if 'GMM' in m]
+    # Within-Taylor ablation: CW-Taylor vs GMM-Taylor at matched K
+    for K in (2, 4, 8, 16, 5, 12, 20, 50):
+        a = _find(rf"^CW-Taylor[ ,]*K=\s*{K}\b")
+        b = _find(rf"^GMM-Taylor[ ,]*K=\s*{K}\b")
+        if not a:
+            # Legacy fallback
+            a = [m for m in _find(rf"Taylor[ -].*N=\s*{K}\b") if 'GMM' not in m]
+        if not b:
+            b = [m for m in _find(rf"GMM.*N=\s*{K}\b") if 'EDMD' not in m]
         if a and b:
-            pairs.append((a[0], b[0], "residual-aware Taylor vs GMM-baseline"))
+            pairs.append((a[0], b[0], f"CW-Taylor vs GMM-Taylor at K={K}"))
 
-    # Taylor-analytic vs Global EDMD
-    taylors = _find(r"Taylor.*N=\s*\d+")
-    globals_ = _find(r"Global EDMD deg=\s*\d+|EDMD-disc deg")
+    # Within-EDMD ablation: CW-EDMD vs GMM-EDMD at matched (q, K)
+    for q in (2, 3, 4, 5):
+        for K in (2, 4, 8, 16, 5, 12, 20):
+            a = _find(rf"^CW-EDMD[ ,]*q=\s*{q}[ ,]*K=\s*{K}\b")
+            b = _find(rf"^GMM-EDMD[ ,]*q=\s*{q}[ ,]*K=\s*{K}\b")
+            if a and b:
+                pairs.append((a[0], b[0], f"CW-EDMD vs GMM-EDMD at q={q}, K={K}"))
+
+    # CW-Taylor vs EDMD
+    taylors = _find(r"^CW-Taylor[ ,]*K=\s*\d+")
+    if not taylors:
+        taylors = [m for m in _find(r"Taylor.*N=\s*\d+") if 'GMM' not in m]
+    globals_ = _find(r"^EDMD\s+q=\s*\d+|EDMD-disc\s+deg")
     if taylors and globals_:
         pairs.append((taylors[-1], globals_[0],
-                      "Taylor-analytic (largest N) vs Global EDMD (lowest deg)"))
+                      "CW-Taylor (largest K) vs EDMD (lowest q)"))
 
-    # Local EDMD vs Global EDMD
-    locals_  = _find(r"local-EDMD.*N=\s*\d+|Local-EDMD.*N=\s*\d+")
-    if locals_ and globals_:
-        pairs.append((locals_[-1], globals_[0],
-                      "local-EDMD (largest N) vs Global EDMD (lowest deg)"))
+    # CW-EDMD vs EDMD
+    cw_edmds = _find(r"^CW-EDMD[ ,]*q=\s*\d+[ ,]*K=\s*\d+")
+    if not cw_edmds:
+        cw_edmds = [m for m in _find(r"local-EDMD.*N=\s*\d+|Local-EDMD.*N=\s*\d+")
+                    if 'GMM' not in m]
+    if cw_edmds and globals_:
+        pairs.append((cw_edmds[-1], globals_[0],
+                      "CW-EDMD (largest K) vs EDMD (lowest q)"))
 
     return pairs
 
@@ -350,15 +375,18 @@ def cross_config_paired_tests(df: pd.DataFrame, metrics, out_dir: Path):
 # -- Figures ------------------------------------------------------------------
 
 # Method-family taxonomy. Order determines color/legend order in plots.
+# Names match the paper terminology: EDMD (global), CW-EDMD (residual-aware
+# partitioning + EDMD per cluster), GMM-EDMD (within-EDMD ablation:
+# geometry-only responsibilities + EDMD per cluster), CW-Taylor (Taylor variant
+# of CW-EDMD), GMM-Taylor (within-Taylor ablation = GMM-clustered local model
+# of CWM literature).
 _FAMILIES = [
-    ('EDMD-pykoopman',         '#999999'),    # external pykoopman baseline (grey)
-    ('Global EDMD continuous', '#d62728'),    # red -- continuous global (legacy)
-    ('Global EDMD discrete',   '#ff7f0e'),    # orange -- discrete global (paper standard)
-    ('Local-EDMD continuous',  '#9467bd'),    # purple -- continuous local
-    ('Local-EDMD discrete',    '#1f77b4'),    # blue -- discrete local (paper standard)
-    ('Taylor-analytic',        '#2ca02c'),    # green -- physics-aware
-    ('Taylor-LS',              '#17becf'),    # cyan -- LS-fit Taylor variant
-    ('GMM-baseline',           '#e377c2'),    # pink -- residual-free baseline
+    ('EDMD',                   '#ff7f0e'),    # orange -- single global operator
+    ('CW-EDMD',                '#1f77b4'),    # blue -- our method
+    ('GMM-EDMD',               '#8c564b'),    # brown -- within-EDMD ablation
+    ('CW-Taylor',              '#2ca02c'),    # green -- Taylor variant (Appendix E)
+    ('GMM-Taylor',             '#e377c2'),    # pink -- within-Taylor ablation
+    ('EDMD-pykoopman',         '#999999'),    # external pykoopman (legacy)
     ('Other',                  '#7f7f7f'),
 ]
 _FAMILY_COLOR = dict(_FAMILIES)
@@ -371,55 +399,79 @@ _SYSTEM_D = {'lorenz': 3, 'pendulum': 2, 'duffing': 2}
 def _method_family(name: str) -> str:
     """Map a method name to its family bucket for grouping/color."""
     n = name.lower().replace(' ', '').replace('_', '-')
-    if 'gmm' in n:
-        return 'GMM-baseline'
-    if 'taylor-ls' in n or 'taylorls' in n:
-        return 'Taylor-LS'
-    if 'taylor' in n:
-        return 'Taylor-analytic'
+    # Order matters: more specific prefixes first
+    if 'gmm-edmd' in n or 'gmmedmd' in n:
+        return 'GMM-EDMD'
+    if 'gmm-taylor' in n or 'gmmtaylor' in n:
+        return 'GMM-Taylor'
+    if 'cw-edmd' in n or 'cwedmd' in n:
+        return 'CW-EDMD'
+    if 'cw-taylor' in n or 'cwtaylor' in n:
+        return 'CW-Taylor'
     if 'edmd-pk' in n or 'edmd-pykoopman' in n:
         return 'EDMD-pykoopman'
-    if 'local' in n and ('-disc' in n or 'disc' in n.split('local-edmd-')[-1].split('n=')[0]):
-        return 'Local-EDMD discrete'
+    # Legacy fallback labels (pre-rename corpus compatibility)
+    if 'gmm' in n and ('local-edmd' in n or 'localedmd' in n):
+        return 'GMM-EDMD'
+    if 'gmm' in n:
+        return 'GMM-Taylor'
+    if 'taylor-ls' in n or 'taylorls' in n:
+        return 'Other'
+    if 'taylor' in n:
+        return 'CW-Taylor'
     if 'local-edmd' in n or 'localedmd' in n:
-        return 'Local-EDMD continuous'
-    if 'edmd-disc' in n or 'edmddisc' in n:
-        return 'Global EDMD discrete'
-    if 'edmd-ours' in n or 'globaledmd' in n or 'edmd-cont' in n:
-        return 'Global EDMD continuous'
+        return 'CW-EDMD'
+    if 'edmd-disc' in n or 'edmddisc' in n or re.match(r'^edmd\s*q', n.replace('-', '')):
+        return 'EDMD'
+    if n.startswith('edmd'):
+        return 'EDMD'
     return 'Other'
 
 
 def _method_params(name: str, d: int):
     """Best-effort parameter count parsed from a method label.
 
-    Returns ``(params, N_or_deg_str)`` for plot annotation, or ``(None, '')``
+    Returns ``(params, label_suffix)`` for plot annotation, or ``(None, '')``
     if the label can't be parsed.
+
+    New label format (paper-aligned):
+      'EDMD q=2'                 -> deg=2,        params = M_q^2
+      'CW-EDMD q=2, K=8'         -> deg=2, K=8,   params = K * M_q^2
+      'GMM-EDMD q=2, K=8'        -> deg=2, K=8,   params = K * M_q^2
+      'CW-Taylor K=8'            -> K=8,          params = K * (d^2 + d)
+      'GMM-Taylor K=8'           -> K=8,          params = K * (d^2 + d)
+    Legacy formats also recognised for backward compat with older corpora.
     """
     nl = name.lower().replace(' ', '').replace('_', '-')
     fam = _method_family(name)
     from math import comb
 
+    # Cluster count: prefer K=, fall back to N= for legacy labels
+    K_match = re.search(r'k=(\d+)', nl)
     n_match = re.search(r'n=(\d+)', nl)
-    N = int(n_match.group(1)) if n_match else None
+    N = int(K_match.group(1)) if K_match else (int(n_match.group(1)) if n_match else None)
 
+    # Polynomial degree: prefer q=, fall back to deg=k or dN
     deg = None
-    deg_match = re.search(r'deg[-=](\d+)', nl)
-    if deg_match:
-        deg = int(deg_match.group(1))
-    elif re.search(r'\bd(\d+)', nl):
-        deg = int(re.search(r'\bd(\d+)', nl).group(1))
+    q_match = re.search(r'q=(\d+)', nl)
+    if q_match:
+        deg = int(q_match.group(1))
+    else:
+        deg_match = re.search(r'deg[-=](\d+)', nl)
+        if deg_match:
+            deg = int(deg_match.group(1))
+        elif re.search(r'\bd(\d+)', nl):
+            deg = int(re.search(r'\bd(\d+)', nl).group(1))
 
-    if fam in ('Taylor-analytic', 'Taylor-LS', 'GMM-baseline') and N is not None:
-        return N * (d * d + d), f"N={N}"
-    if fam in ('Local-EDMD continuous', 'Local-EDMD discrete') and N is not None:
+    if fam in ('CW-Taylor', 'GMM-Taylor') and N is not None:
+        return N * (d * d + d), f"K={N}"
+    if fam in ('CW-EDMD', 'GMM-EDMD') and N is not None:
         d_eff = deg or 2
         M = comb(d + d_eff, d_eff)
-        return N * M * M, f"N={N}, deg={d_eff}"
-    if fam in ('Global EDMD continuous', 'Global EDMD discrete',
-               'EDMD-pykoopman') and deg is not None:
+        return N * M * M, f"q={d_eff}, K={N}"
+    if fam in ('EDMD', 'EDMD-pykoopman') and deg is not None:
         M = comb(d + deg, deg)
-        return M * M, f"deg={deg}"
+        return M * M, f"q={deg}"
     return None, ''
 
 
