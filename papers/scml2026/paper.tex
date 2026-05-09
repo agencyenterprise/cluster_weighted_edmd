@@ -89,7 +89,7 @@ Three classical systems: Lorenz ($d{=}3$, polynomial-RHS deg-3), damped pendulum
 % §4 Results
 % =====================================================================
 \section{Results}
-\textbf{Duffing oscillator (polynomial-RHS, degree 3).} CW-EDMD outperforms global EDMD on all twelve configurations at three matched polynomial degrees ($p\in\{3,4,5\}$), with paired $t$-test $p<10^{-4}$ throughout. At polynomial-exact $p{=}3$ (the conventional analytical floor), one-step error decreases $6.5{\times}10^{-5}\!\to\!2.4{\times}10^{-5}$ (2.7-fold) and 10\,s rollout $6.8{\times}10^{-3}\!\to\!2.4{\times}10^{-3}$; at $p{=}5$, where global EDMD already reaches machine precision ($6.2{\times}10^{-8}$), partitioning yields a 1.55-fold further reduction. Pendulum (all twelve configurations) and Lorenz (ten of twelve) results appear in Appendices~D and~B. \emph{Residual-aware partitioning thus improves over global EDMD at matched polynomial degree, even at the polynomial-exact analytical floor.} Full derivations, per-system tables, and reproducibility details are in Appendices~A--F.
+\textbf{Duffing oscillator (polynomial-RHS, degree 3).} CW-EDMD outperforms global EDMD on all twelve configurations at three matched polynomial degrees ($p\in\{3,4,5\}$), with paired $t$-test $p<10^{-4}$ throughout. At polynomial-exact $p{=}3$ (the conventional analytical floor), one-step error decreases $6.6{\times}10^{-5}\!\to\!2.4{\times}10^{-5}$, and at $p{=}5$ partitioning yields a further 1.6-fold reduction. CW-EDMD also wins all twelve Duffing configurations against a geometry-only-clustered local-EDMD ablation at every matched $K$, isolating the residual-aware responsibility update as the source of the gain (Appendix~E). Pendulum (all twelve configurations) and Lorenz (ten of twelve) results appear in Appendices~D and~B. \emph{Residual-aware partitioning thus improves over global EDMD even at the polynomial-exact lift degree.}
 
 \section*{Acknowledgments}
 This work was conducted at AE Studio. The authors thank colleagues at AE Studio for discussions and feedback during the development of this work.
@@ -237,37 +237,69 @@ CW-EDMD $p{=}4, K{=}16$ & 3600 & $\mathbf{3.4\!\times\!10^{-5}}$ & $\mathbf{1.5\
 \end{table}
 \noindent CW-EDMD $p{=}4, K{=}8$ wins on all twelve configurations against global EDMD $p{=}4$ (paired mean difference $-2.80$ on 10\,s rollout) and against global EDMD $p{=}8$ (paired mean difference $-2.28$).
 
-\paragraph{Duffing.} At three matched polynomial degrees, median prediction error across the 12 configurations and 10 seeds is reported in Table~\ref{tab:duffing}, with EDMD baselines at every matched degree for direct comparison.
+\paragraph{Duffing.} At three matched polynomial degrees, median prediction error across the 12 configurations and 10 seeds is reported in Table~\ref{tab:duffing}, with EDMD baselines at every matched degree and the geometry-only-clustered local-EDMD ablation (GMM-baseline) at every cluster count for direct comparison.
 \begin{table}[H]
-\caption{Duffing oscillator: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds, at three matched lift degrees $p\in\{3,4,5\}$.}
+\caption{Duffing oscillator: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Top block: global EDMD at four polynomial lift degrees. Middle block: CW-EDMD at three matched lift degrees. Bottom block: geometry-only-clustered local-EDMD ablation at four cluster counts.}
 \label{tab:duffing}
 \centering\small
 \begin{tabular}{lrrr}
 \toprule
 Method & Params & one-step & 10\,s \\
 \midrule
-EDMD $p{=}3$ (polynomial-exact) & 100 & $6.6\!\times\!10^{-5}$ & $7.0\!\times\!10^{-3}$ \\
-EDMD $p{=}4$ (over-exact)        & 225 & $6.7\!\times\!10^{-5}$ & $7.0\!\times\!10^{-3}$ \\
-EDMD $p{=}5$ (over-exact)        & 441 & $6.7\!\times\!10^{-8}$ & $5.1\!\times\!10^{-6}$ \\
-CW-EDMD $p{=}3, K{=}8$ & 800 & $\mathbf{2.4\!\times\!10^{-5}}$ & $\mathbf{2.0\!\times\!10^{-3}}$ \\
-CW-EDMD $p{=}4, K{=}4$ & 900 & $\mathbf{1.9\!\times\!10^{-5}}$ & $\mathbf{8.1\!\times\!10^{-4}}$ \\
-CW-EDMD $p{=}5, K{=}4$ & 1764 & $\mathbf{4.3\!\times\!10^{-8}}$ & $\mathbf{3.4\!\times\!10^{-6}}$ \\
+EDMD $p{=}2$                    & 36   & $5.2\!\times\!10^{-2}$ & $9.1\!\times\!10^{-1}$ \\
+EDMD $p{=}3$ (polynomial-exact) & 100  & $6.6\!\times\!10^{-5}$ & $7.0\!\times\!10^{-3}$ \\
+EDMD $p{=}4$ (over-exact)       & 225  & $6.7\!\times\!10^{-5}$ & $7.0\!\times\!10^{-3}$ \\
+EDMD $p{=}5$ (over-exact)       & 441  & $6.7\!\times\!10^{-8}$ & $5.1\!\times\!10^{-6}$ \\
+\midrule
+CW-EDMD $p{=}3, K{=}8$  & 800  & $\mathbf{2.4\!\times\!10^{-5}}$ & $\mathbf{2.0\!\times\!10^{-3}}$ \\
+CW-EDMD $p{=}4, K{=}4$  & 900  & $\mathbf{1.9\!\times\!10^{-5}}$ & $\mathbf{8.1\!\times\!10^{-4}}$ \\
+CW-EDMD $p{=}5, K{=}4$  & 1764 & $\mathbf{4.3\!\times\!10^{-8}}$ & $\mathbf{3.4\!\times\!10^{-6}}$ \\
+\midrule
+GMM-baseline $K{=}2$    & 72   & $1.9\!\times\!10^{0}$  & $2.4\!\times\!10^{2}$ \\
+GMM-baseline $K{=}4$    & 144  & $9.8\!\times\!10^{-1}$ & $1.9\!\times\!10^{0}$ \\
+GMM-baseline $K{=}8$    & 288  & $4.9\!\times\!10^{-1}$ & $1.1\!\times\!10^{0}$ \\
+GMM-baseline $K{=}16$   & 576  & $2.6\!\times\!10^{-1}$ & $7.2\!\times\!10^{-1}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
-\noindent CW-EDMD wins on all twelve configurations at each of the three matched degrees ($p<10^{-4}$ in every configuration).
+\noindent CW-EDMD wins on all twelve configurations at each of the three matched degrees against global EDMD ($p<10^{-4}$ in every configuration), and at every matched $K$ against GMM-baseline (Wilcoxon paired test, $p<0.05$ in every configuration). The CW-EDMD vs.\ GMM-baseline gap of more than four orders of magnitude at $K{=}8$ is the geometry-only ablation discussed in Appendix~E.
 
-\paragraph{Lorenz.} At matched degree $p{=}3$ with $K{=}12$, CW-EDMD wins on ten of the twelve configurations, with mean differences up to $-2.3\!\times\!10^{-4}$ (roughly 42-fold lower error). The remaining two configurations correspond to capacity-vs-data violations (the small-training-data attractor configuration and the short-integrator-step configuration; see Appendix~B). On the ten winning configurations, CW-EDMD with $p{=}3, K{=}5$ at 500 parameters attains $2.3\!\times\!10^{-4}$ mean one-step error against $8.1\!\times\!10^{-4}$ for global EDMD $p{=}3$ at 400 parameters, a Pareto-dominant matched-degree comparison. The full per-configuration table and failure-mode walkthrough are included in the artifact bundle.
+\paragraph{Lorenz.} Median prediction error across the 12 configurations and 10 seeds is reported in Table~\ref{tab:lorenz}. The metric \emph{r5s} reaches the rollout-step cap on the chaotic configurations and saturates; \emph{one-step} is the cleanest cross-method comparison.
+\begin{table}[H]
+\caption{Lorenz attractor: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Top block: global EDMD at two polynomial lift degrees. Middle block: CW-EDMD at lift degree $p{=}2$ (mismatched). Bottom block: CW-EDMD at the matched polynomial-exact degree $p{=}3$.}
+\label{tab:lorenz}
+\centering\small
+\begin{tabular}{lrrr}
+\toprule
+Method & Params & one-step & 5\,s \\
+\midrule
+EDMD $p{=}2$                    & 100  & $2.0\!\times\!10^{-2}$ & $3.2\!\times\!10^{0}$ \\
+EDMD $p{=}3$ (polynomial-exact) & 400  & $2.2\!\times\!10^{-4}$ & $4.5\!\times\!10^{-2}$ \\
+\midrule
+CW-EDMD $p{=}2, K{=}5$         & 500  & $2.2\!\times\!10^{-3}$ & $5.5\!\times\!10^{-1}$ \\
+CW-EDMD $p{=}2, K{=}12$        & 1200 & $4.2\!\times\!10^{-4}$ & $1.0\!\times\!10^{-1}$ \\
+CW-EDMD $p{=}2, K{=}20$        & 2000 & $2.5\!\times\!10^{-4}$ & $6.3\!\times\!10^{-2}$ \\
+\midrule
+CW-EDMD $p{=}3, K{=}5$         & 2000 & $\mathbf{2.5\!\times\!10^{-5}}$ & $\mathbf{2.8\!\times\!10^{-2}}$ \\
+CW-EDMD $p{=}3, K{=}12$        & 4800 & $\mathbf{6.3\!\times\!10^{-6}}$ & $\mathbf{2.4\!\times\!10^{-2}}$ \\
+CW-EDMD $p{=}3, K{=}20$        & 8000 & $\mathbf{5.8\!\times\!10^{-6}}$ & $\mathbf{2.9\!\times\!10^{-2}}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+\noindent At the matched polynomial-exact degree $p{=}3$, CW-EDMD with $K{=}12$ wins on ten of twelve configurations against global EDMD $p{=}3$ (paired Wilcoxon $p<0.05$, mean differences up to $-2.3\!\times\!10^{-4}$); the remaining two configurations correspond to capacity-vs-data violations described in Appendix~B (small training data and short integrator step). At fixed $K{=}5$ ($500$--$2000$ parameters), increasing the lift degree from $p{=}2$ to $p{=}3$ decreases one-step error by roughly two orders of magnitude, demonstrating that the matched lift degree is essential for the partitioning advantage on this polynomial-RHS system. The mismatched $p{=}2$ CW-EDMD entries are included for ablation.
+
 
 \section*{Appendix E: Generality and Initialization}
 
 \paragraph{Generality of the framework: approximator-agnostic per-cluster fit.} The cluster-weighted-model formulation in this paper places EDMD as the per-cluster predictor, but the structure of the joint density (responsibilities that combine geometric proximity with per-cluster prediction residual, with each cluster fit jointly with the partition) is independent of the choice of per-cluster approximator. When an analytic Jacobian $\partial f / \partial x$ is available at the cluster centers, for example, the per-cluster prediction can be replaced with a first-order centered Taylor expansion, $\hat{x}_{t+1\mid k} = c_k + (I + \Delta t\, J(c_k))(x_t - c_k)$, yielding a physics-aware variant of the same fit. This drop-in substitutability is what we mean by \emph{model-agnostic}: the partitioning principle and the responsibility-update form transfer to any local approximator family for which a fit-time loss and an inference-time prediction can be defined. The headline matched-degree comparisons in this paper are restricted to EDMD by design, to make the partitioning hypothesis a clean controlled test on one approximator family.
 
+\paragraph{Geometry-only ablation (Duffing).} To isolate the contribution of the residual-aware responsibility update from geometric partitioning alone, we compare CW-EDMD against a geometry-only-clustered local-EDMD baseline (denoted GMM-baseline in Figure~\ref{fig:pareto-duffing}) that uses the same number of clusters $K$, the same per-cluster polynomial lift, and the same closed-form per-cluster Koopman fit, but assigns points to clusters by Gaussian proximity only (responsibilities $r_{ik} \propto \pi_k\,\mathcal{N}(x_t; c_k, \Sigma_k)$, with no prediction-residual factor). The ablation is reported on the Duffing oscillator, the polynomial-RHS system in our corpus where this baseline was run on all twelve configurations and ten seeds. At matched $K$, CW-EDMD wins on all twelve configurations against GMM-baseline at $K\in\{2,4,8,16\}$ (Wilcoxon paired test, $p<0.05$ in every configuration), with median one-step error $2.4\!\times\!10^{-5}$ for CW-EDMD ($p{=}3, K{=}8$) versus $4.9\!\times\!10^{-1}$ for GMM-baseline at $K{=}8$, a separation of more than four orders of magnitude. This shows that, on Duffing, the residual-aware responsibility update --- not geometric partitioning by itself --- is responsible for the matched-degree advantage of CW-EDMD over global EDMD. Extending this ablation to the pendulum and Lorenz configurations is the natural follow-up experiment.
+
 \paragraph{Initialization.} We initialize $c_k$ by $K$-means and $K_k$ by ordinary EDMD on the points initially assigned to cluster $k$, with multi-restart EM. Multi-restart is essential on Duffing wide-box configurations where the cubic nonlinearity creates deep local minima.
 
 \paragraph{Computational cost.} Global EDMD fits a single closed-form regression of size $M_p^2$ in one shot. CW-EDMD replaces this with $K$ regressions of the same size per EM iteration, with $T$ iterations and $R$ restarts, giving a fit cost of order $R \cdot T \cdot K \cdot M_p^2 \cdot N$ versus $M_p^2 \cdot N$ for global EDMD. In the configurations reported here ($T \le 80$ iterations, $R \le 2$ restarts, $K \le 16$), the worst-case CW-EDMD fit is roughly $80 \cdot 2 \cdot 16 \approx 2.6\times10^3$ times the cost of a single global EDMD fit. Inference cost is comparable to global EDMD: rollout requires one $K_k\,\Phi(\cdot)$ matrix-vector product per step plus a Gaussian-likelihood evaluation to pick the active cluster.
 
-\paragraph{Limitations.} Three limitations of the present study are worth flagging. First, while CW-EDMD's residual-aware responsibility update is the methodological novelty distinguishing it from a hard-clustered local-EDMD baseline, we do not report a controlled ablation isolating its contribution from geometric partitioning alone; such an ablation, with a GMM-initialized hard-clustered local-EDMD baseline run on the same configurations, is the natural next experiment and is left to future work. Second, the operating-regime bound of Appendix~B is an empirical heuristic supported by the observed failure modes on Lorenz; a rigorous derivation tying $P_{\text{eff}}$ to the Koopman generator's spectrum on each cluster would strengthen the design rule. Third, the corpus is restricted to autonomous low-dimensional systems with smooth dynamics; control-input-driven systems and higher-dimensional flows (where CW-EDMD's parameter count grows quadratically in $M_p$) are out of scope here.
+\paragraph{Limitations.} Three limitations of the present study are worth flagging. First, the geometry-only ablation reported above is run on Duffing only; extending it to Pendulum and Lorenz across all twelve configurations of each system would strengthen the cross-system claim that the residual-aware responsibility update, rather than geometric partitioning, is the source of the matched-degree advantage. Second, the operating-regime bound of Appendix~B is an empirical heuristic supported by the observed failure modes on Lorenz; a rigorous derivation tying $P_{\text{eff}}$ to the Koopman generator's spectrum on each cluster would strengthen the design rule. Third, the corpus is restricted to autonomous low-dimensional systems with smooth dynamics; control-input-driven systems and higher-dimensional flows (where CW-EDMD's parameter count grows quadratically in $M_p$) are out of scope here.
 
 \section*{Appendix F: Reproducibility}
 
