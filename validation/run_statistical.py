@@ -1206,8 +1206,8 @@ def paired_tests(name, all_runs, pairs):
         t = paired_test(a, b)
         sig = "***" if t['p_value'] < 0.001 else "**" if t['p_value'] < 0.01 \
             else "*" if t['p_value'] < 0.05 else "ns"
-        print(f"    {label}: {a.mean():.5f} vs {b.mean():.5f}, "
-              f"diff={t['mean_diff']:+.5f}, p={t['p_value']:.4f} {sig}")
+        print(f"    {label}: {a.mean():.4g} vs {b.mean():.4g}, "
+              f"diff={t['mean_diff']:+.3g}, p={t['p_value']:.4f} {sig}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1234,15 +1234,16 @@ if not args.skip_lorenz:
             lorenz_pairs.append(
                 (f'CW-EDMD q={deg}, K={N}', f'GMM-EDMD q={deg}, K={N}', 'one_step',
                  f'CW-EDMD vs GMM-EDMD q={deg}, K={N}'))
-    # CW-Taylor vs EDMD
+    # CW-Taylor vs EDMD (Taylor variant has no q parameter, compare to lowest tested degree)
     for N in args.lorenz_N:
         lorenz_pairs.append(
             (f'CW-Taylor K={N}', 'EDMD q=2', 'one_step', f'CW-Taylor K={N} vs EDMD q=2'))
-    # CW-EDMD vs EDMD
-    for N in args.lorenz_N:
-        lorenz_pairs.append(
-            (f'CW-EDMD q=2, K={N}', 'EDMD q=2', 'one_step',
-             f'CW-EDMD q=2 K={N} vs EDMD q=2'))
+    # CW-EDMD vs EDMD at MATCHED degree (the headline comparison, every configured q)
+    for deg in args.lorenz_le_degrees:
+        for N in args.lorenz_N:
+            lorenz_pairs.append(
+                (f'CW-EDMD q={deg}, K={N}', f'EDMD q={deg}', 'one_step',
+                 f'CW-EDMD q={deg}, K={N} vs EDMD q={deg}'))
     paired_tests("Lorenz", lorenz_runs, lorenz_pairs)
 
     _json, _fig, _models = _out_paths("statistical_lorenz")
@@ -1294,15 +1295,17 @@ if not args.skip_pendulum:
             pendulum_pairs.append(
                 (f'CW-EDMD q={deg}, K={N}', f'GMM-EDMD q={deg}, K={N}', 'one_step',
                  f'CW-EDMD vs GMM-EDMD q={deg}, K={N}'))
-    # CW-EDMD vs EDMD
-    for N in args.pendulum_N:
-        pendulum_pairs.append(
-            (f'CW-EDMD q=2, K={N}', f'EDMD q=2', 'one_step',
-             f'CW-EDMD q=2, K={N} vs EDMD q=2'))
-    for N in args.pendulum_N:
-        pendulum_pairs.append(
-            (f'CW-EDMD q=2, K={N}', f'EDMD q=2', pendulum_headline_h_key,
-             f'CW-EDMD q=2, K={N} vs EDMD q=2 ({pendulum_headline_h_label})'))
+    # CW-EDMD vs EDMD at MATCHED degree (the headline comparison, every configured q)
+    for deg in args.pendulum_le_degrees:
+        for N in args.pendulum_N:
+            pendulum_pairs.append(
+                (f'CW-EDMD q={deg}, K={N}', f'EDMD q={deg}', 'one_step',
+                 f'CW-EDMD q={deg}, K={N} vs EDMD q={deg}'))
+    for deg in args.pendulum_le_degrees:
+        for N in args.pendulum_N:
+            pendulum_pairs.append(
+                (f'CW-EDMD q={deg}, K={N}', f'EDMD q={deg}', pendulum_headline_h_key,
+                 f'CW-EDMD q={deg}, K={N} vs EDMD q={deg} ({pendulum_headline_h_label})'))
     paired_tests("Pendulum", pendulum_runs, pendulum_pairs)
 
     _json, _fig, _models = _out_paths("statistical_pendulum")
@@ -1682,12 +1685,16 @@ if not args.skip_duffing:
              f"EDMD q={deg0}", headline_h_key,
              f"CW-Taylor K={args.duffing_N[-1]} vs EDMD q={deg0} "
              f"(rollout {args.duffing_horizons[-1]}s)"))
-    if args.duffing_le2_N and args.duffing_edmd_degrees:
-        deg0 = args.duffing_edmd_degrees[0]
-        duffing_pairs.append(
-            (f"CW-EDMD q=2, K={args.duffing_le2_N[-1]}",
-             f"EDMD q={deg0}", 'one_step',
-             f"CW-EDMD q=2, K={args.duffing_le2_N[-1]} vs EDMD q={deg0}"))
+    # CW-EDMD vs EDMD at MATCHED degree (the headline comparison, every q)
+    for deg, N_list in [(2, args.duffing_le2_N),
+                        (3, args.duffing_le3_N),
+                        (4, args.duffing_le4_N),
+                        (5, args.duffing_le5_N)]:
+        for N in N_list:
+            if f"EDMD q={deg}" in duffing_runs:
+                duffing_pairs.append(
+                    (f"CW-EDMD q={deg}, K={N}", f"EDMD q={deg}", 'one_step',
+                     f"CW-EDMD q={deg}, K={N} vs EDMD q={deg}"))
     paired_tests("Duffing", duffing_runs, duffing_pairs)
 
     _json, _fig, _models = _out_paths("statistical_duffing")
