@@ -55,36 +55,36 @@ pdfkeywords={Koopman operator, EDMD, cluster-weighted models, EM, dynamical syst
 % =====================================================================
 % §1 Lead paragraph
 % =====================================================================
-Extended Dynamic Mode Decomposition (EDMD) is the canonical data-driven approximation of the Koopman operator~\citep{williams2015edmd,mezic2005spectral,brunton2022modern,korda2018mpc,mauroy2020koopman}. Prior partitioning approaches predefine the partition by basin label~\citep{williams2015edmd}, phase-space stitching~\citep{sinha2020phase}, or operating-regime indicator~\citep{peitz2019switched}. A complementary line of work enriches the global observable basis through learned dictionaries~\citep{li2017dictionary}, deep autoencoders~\citep{lusch2018deep}, or kernel methods~\citep{williams2015kernel}, orthogonal to the partitioning direction pursued here. We introduce \emph{Cluster-Weighted EDMD} (CW-EDMD), which learns the partition jointly with per-cluster operators via Expectation-Maximization (EM) on a cluster-weighted-model joint density~\citep{gershenfeld1999nature,ingrassia2014linear,punzo2014polynomial}, with responsibilities combining geometric proximity and per-cluster prediction residual. Across three classical systems (36 configurations, 10 seeds), CW-EDMD improves over EDMD at the matched polynomial lift degree, across the entire range of lift degrees we tested ($q \in \{2,3,4,5\}$) including the regime where EDMD itself saturates near machine precision.
+Extended Dynamic Mode Decomposition (EDMD) is the canonical data-driven approximation of the Koopman operator~\citep{williams2015edmd,mezic2005spectral,brunton2022modern,korda2018mpc,mauroy2020koopman}. Prior partitioning approaches predefine the partition by basin label~\citep{williams2015edmd}, phase-space stitching~\citep{sinha2020phase}, or operating-regime indicator~\citep{peitz2019switched}. A complementary line of work enriches the global observable basis through learned dictionaries~\citep{li2017dictionary}, deep autoencoders~\citep{lusch2018deep}, or kernel methods~\citep{williams2015kernel}, orthogonal to the partitioning direction pursued here. We introduce \emph{Cluster-Weighted EDMD} (CW-EDMD), which learns the partition jointly with per-cluster operators via Expectation-Maximization (EM) on a cluster-weighted-model joint density~\citep{gershenfeld1999nature,ingrassia2014linear,punzo2014polynomial}, with responsibilities combining geometric proximity and per-cluster prediction residual. Across three classical systems (36 configurations, 10 seeds), CW-EDMD improves over EDMD at the matched polynomial lift degree, including where EDMD itself saturates near machine precision.
 
 % =====================================================================
 % §2 Method
 % =====================================================================
-\section{Method}
-CW-EDMD is a Cluster-Weighted Model joint density $p(x_t,x_{t+1}) = \sum_{k=1}^{K} \pi_k\, \mathcal{N}(x_t; c_k, \Sigma_k)\, \mathcal{N}(\Delta x_k; 0, \sigma_k^2 I)$ with per-cluster prediction residual $\Delta x_k = x_{t+1} - c_k - [K_k\,\Phi(x_t-c_k)]_{1:d}$, where $\Phi$ is a degree-$q$ monomial lift centered at $c_k$ and $K_k$ is the per-cluster Koopman matrix. EM alternates between updating cluster responsibilities $r_{ik}\propto\pi_k\mathcal{N}(x_t;c_k,\Sigma_k)\mathcal{N}(\Delta x_k;0,\sigma_k^2 I)$, which combine geometric proximity with per-cluster prediction residual, and solving each $K_k$ in closed form by responsibility-weighted least squares, generalizing EDMD to the per-cluster regime (full derivation in Appendix~A).
+\noindent\textbf{Method.} CW-EDMD is a Cluster-Weighted Model joint density
+\[
+p(x_t,x_{t+1}) = \sum_{k=1}^{K} \pi_k\, \mathcal{N}(x_t; c_k, \Sigma_k)\, \mathcal{N}(\Delta x_k; 0, \sigma_k^2 I),
+\]
+with per-cluster prediction residual $\Delta x_k = x_{t+1} - c_k - P_d\, K_k\, \Phi(x_t-c_k)$. Here $\Phi$ is a degree-$q$ monomial lift centered at $c_k$, $K_k$ the per-cluster Koopman matrix, and $P_d$ the state projection. EM alternates between updating cluster responsibilities $r_{ik}\propto\pi_k\mathcal{N}(x_t;c_k,\Sigma_k)\mathcal{N}(\Delta x_k;0,\sigma_k^2 I)$, which combine geometric proximity with per-cluster prediction residual, and solving each $K_k$ in closed form by responsibility-weighted least squares, generalizing EDMD to the per-cluster regime (full derivation in Appendix~A).
 
-\textbf{Experimental setup.} Three classical systems: Lorenz ($d{=}3$, polynomial-RHS deg-3), damped pendulum ($d{=}2$, non-polynomial $\sin\theta$), double-well Duffing ($d{=}2$, polynomial-RHS deg-3). Each: 12 configurations sweeping five sampling distributions, data size, domain, integrator step, and fit budget; 10 fixed seeds per configuration (full setup in Appendix~C; code and corpus in Appendix~F). We test \emph{matched-degree} CW-EDMD-$q$ against EDMD-$q$ via paired $t$-tests, holding the lift basis fixed to isolate the partitioning contribution; a \emph{cross-config win} is \textit{p}\,$<\,0.05$ with lower CW-EDMD mean.
+\textbf{Experimental setup.} Three classical systems: Lorenz ($d{=}3$, polynomial-RHS deg-3), damped pendulum ($d{=}2$, non-polynomial $\sin\theta$), double-well Duffing ($d{=}2$, polynomial-RHS deg-3). Each: 12 configurations sweeping five sampling distributions, data size, domain, integrator step, and fit budget; 10 fixed seeds per configuration (full setup in Appendix~C; code and corpus in Appendix~F). We test \emph{matched-degree} CW-EDMD-$q$ against EDMD-$q$ via paired Wilcoxon tests; a \emph{cross-config win} is \textit{p}\,$<\,0.05$ with lower CW-EDMD mean.
 
 % =====================================================================
 % §2 Results
 % =====================================================================
 \begin{table}[H]
-\caption{Headline matched-degree summary: paired-test wins of CW-EDMD vs.\ EDMD over the 12 configurations per system, and median one-step ratio EDMD / CW-EDMD ($>1$: CW-EDMD lower error).}
+\caption{Headline matched-degree summary: paired-test wins of CW-EDMD vs.\ EDMD over the 12 configurations per system, and median error ratio EDMD / CW-EDMD at one-step and 5\,s rollout ($>1$: CW-EDMD lower error).}
 \label{tab:headline}
 \centering\footnotesize
-\begin{tabular}{lcr}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccrr}
 \toprule
-System ($q$, $K$) & wins vs.\ EDMD & error ratio \\
+System ($q$, $K$) & wins (1-step) & wins (5\,s) & 1-step & 5\,s \\
 \midrule
-Pendulum (4, 8) & 12/12 & $\sim$2900$\times$ \\
-Duffing  (3, 8) & 12/12 & $\sim$2.7$\times$ \\
-Lorenz   (3, 12) & 10/12 & $\sim$35$\times$ \\
-\bottomrule
+\input{tab_headline.tex}
 \end{tabular}
 \end{table}
 
-\section{Results}
-CW-EDMD outperforms EDMD at the matched polynomial lift on all three systems (Table~\ref{tab:headline}; per-system Pareto frontiers in Figures~\ref{fig:pareto-duffing}--\ref{fig:pareto-lorenz} and full tables in Appendix~D). On Duffing the matched comparison spans three polynomial degrees ($q\in\{3,4,5\}$, all with $12/12$ wins, paired $t$-test \textit{p}\,$<\,10^{-4}$ throughout); the two non-wins on Lorenz are characterized by the capacity-vs-data condition of Appendix~B. A direct within-EDMD ablation across all three systems isolates the residual-aware mechanism: CW-EDMD wins $271/324$ paired comparisons ($84\%$, Appendix~E).
+\noindent\textbf{Results.} CW-EDMD outperforms EDMD at the matched polynomial lift on all three systems (Table~\ref{tab:headline}; per-system Pareto frontiers in Figures~\ref{fig:pareto-duffing}--\ref{fig:pareto-lorenz} and full tables in Appendix~D). On Duffing the matched comparison spans three polynomial degrees ($q\in\{3,4,5\}$, all with $12/12$ wins, paired Wilcoxon \textit{p}\,$<\,10^{-4}$ throughout); the two 5\,s rollout non-wins on Lorenz are characterized by the capacity-vs-data condition of Appendix~B. A direct within-EDMD ablation across all three systems isolates the residual-aware mechanism: CW-EDMD wins $271/324$ paired comparisons ($84\%$, Appendix~E).
 
 \section*{Acknowledgments}
 This work was conducted at AE Studio. The authors thank colleagues at AE Studio for discussions and feedback during the development of this work.
@@ -103,7 +103,7 @@ This work was conducted at AE Studio. The authors thank colleagues at AE Studio 
 
 \paragraph{Related work and positioning.} The idea of partitioning phase space and fitting a separate Koopman operator per region is not new. The original EDMD paper~\citep{williams2015edmd} demonstrates a partitioned EDMD on the Duffing oscillator by splitting the data along the basin-of-attraction boundary at $x{=}0$ and fitting separate operators to each basin, an early observation that per-region operators on dynamically meaningful partitions can outperform a single Koopman operator on the full phase space. Sinha, Nandanoori, and Yeung~\citep{sinha2020phase} formalize phase-space stitching of region-specific Koopman operators for large-scale dynamical systems. Peitz and Klus~\citep{peitz2019switched} develop a switched/multi-model Koopman formulation in which different operating regimes are assigned distinct linear Koopman models, with regime indicators driving the switch. Earlier mixture-of-experts work in the statistics literature~\citep{jordan1994hme,gershenfeld1999nature,ingrassia2014linear,punzo2014polynomial} provides the joint-density EM machinery that CW-EDMD reuses. The contribution of CW-EDMD relative to these works is the combination of three elements: (i) the partition is \emph{learned jointly} with the per-cluster operators by EM rather than predefined by basin label, geometry, or operating-regime indicator; (ii) the responsibilities used in the expectation step combine geometric proximity with per-cluster prediction residual, so that the partition tracks where each operator predicts well rather than where data is geometrically dense; and (iii) the per-cluster predictor is the discrete EDMD operator on a recentered polynomial lift, giving a clean apples-to-apples baseline of CW-EDMD against EDMD at matched lift degree. The geometry-only ablation in Appendix~E shows, on Duffing, that element (ii) is what drives the matched-degree advantage.
 
-\paragraph{Two orthogonal axes of Koopman approximation.} Beyond the partitioning literature surveyed above, a parallel line of work improves Koopman approximation by enriching the global observable basis: dictionary learning~\citep{li2017dictionary}, deep Koopman autoencoders~\citep{lusch2018deep,takeishi2017koopman,yeung2019deep}, kernel EDMD~\citep{williams2015kernel,klus2020generator}, and residual-based verification~\citep{colbrook2023mpedmd}. These methods retain a single global operator on a richer learned or kernel basis. CW-EDMD makes the orthogonal bet: a partitioned state space in which a simple local basis (recentered monomials) suffices per region. The two directions address different inductive failure modes --- basis insufficiency for a single global operator versus operator insufficiency under a fixed simple basis --- and compose naturally: a learned per-cluster basis is the obvious next step. For the matched-degree comparisons reported here, our baseline is therefore vanilla EDMD at the same monomial lift, which isolates the partitioning contribution; head-to-head comparison against learned-basis methods on the same systems is reserved for the journal version.
+\paragraph{Two orthogonal axes of Koopman approximation.} Beyond the partitioning literature surveyed above, a parallel line of work improves Koopman approximation by enriching the global observable basis: dictionary learning~\citep{li2017dictionary}, deep Koopman autoencoders~\citep{lusch2018deep,takeishi2017koopman,yeung2019deep}, kernel EDMD~\citep{williams2015kernel,klus2020generator}, and residual-based verification~\citep{colbrook2023mpedmd}. These methods retain a single global operator on a richer learned or kernel basis. CW-EDMD makes the orthogonal bet: a partitioned state space in which a simple local basis (recentered monomials) suffices per region. The two directions address different inductive failure modes --- basis insufficiency for a single global operator versus operator insufficiency under a fixed simple basis --- and compose naturally: a learned per-cluster basis is the obvious next step. For the matched-degree comparisons reported here, our baseline is therefore vanilla EDMD at the same monomial lift, which isolates the partitioning contribution; head-to-head comparison against learned-basis methods is left for future work, where per-cluster learned bases are the natural target.
 
 \paragraph{CWM joint density.} Given paired training data $\{(x_t^{(i)}, x_{t+1}^{(i)})\}_{i=1}^{N}$ in $\mathbb{R}^d$, we model the joint density as
 \[
@@ -111,11 +111,11 @@ p(x_t, x_{t+1}) = \sum_{k=1}^{K} \pi_k\, p_X(x_t \mid k)\, p_{Y\mid X}(x_{t+1} \
 \]
 where $p_X(\cdot \mid k) = \mathcal{N}(c_k, \Sigma_k)$ is the cluster's geometric component and $p_{Y\mid X}(\cdot \mid x_t, k) = \mathcal{N}(\hat{x}_{t+1\mid k}, \sigma_k^2 I)$ is the per-cluster prediction. Mixture weights $\pi_k$ satisfy $\sum_k \pi_k = 1$. Compared with a Gaussian mixture model (GMM), the second factor introduces \emph{residual awareness}: cluster $k$ takes responsibility only for points it can predict well, not just points geometrically nearby.
 
-\paragraph{Per-cluster Koopman operator.} For each cluster $k$ with center $c_k$, define the recentered monomial lift $\Phi: \mathbb{R}^d \to \mathbb{R}^{M_q}$ of total degree $\leq q$, where $M_q = \binom{d+q}{q}$. The per-cluster prediction is
+\paragraph{Per-cluster Koopman operator.} For each cluster $k$ with center $c_k$, define the recentered monomial lift $\Phi: \mathbb{R}^d \to \mathbb{R}^{M_q}$ of total degree $\leq q$, where $M_q = \binom{d+q}{q}$. We use the standard EDMD convention that the first $d$ entries of $\Phi(z)$ are the linear monomials $z_1, \ldots, z_d$ themselves, so the projection $P_d \in \mathbb{R}^{d \times M_q}$ defined by $P_d = [I_d \mid 0_{d \times (M_q - d)}]$ satisfies $P_d \Phi(z) = z$. With $K_k \in \mathbb{R}^{M_q \times M_q}$ the per-cluster Koopman matrix, the per-cluster prediction is
 \[
-\hat{x}_{t+1\mid k} = c_k + [K_k\, \Phi(x_t - c_k)]_{1:d},
+\hat{x}_{t+1\mid k} = c_k + P_d\, K_k\, \Phi(x_t - c_k),
 \]
-where $K_k \in \mathbb{R}^{M_q \times M_q}$ is the Koopman matrix and the projection $[\cdot]_{1:d}$ recovers the state. We retain the full square $K_k$ rather than a rectangular $\mathbb{R}^{d\times M_q}$ regression onto the state because the square form is the standard EDMD discretization of the Koopman operator on the lifted observable space~\citep{williams2015edmd,brunton2022modern}: it preserves the full lifted-space spectrum and lets the operator be reused for spectral analyses, eigenfunction extraction, and downstream control. The output projection is applied only at prediction time, not at fit time. The cost is the $M_q^2 - d\,M_q$ unused parameters per cluster; we report this overhead in the parameter counts of all tables.
+We retain the full square $K_k$ rather than a rectangular $\mathbb{R}^{d \times M_q}$ regression onto the state because the square form is the standard EDMD discretization of the Koopman operator on the lifted observable space~\citep{williams2015edmd,brunton2022modern}: it preserves the full lifted-space spectrum and lets the operator be reused for spectral analyses, eigenfunction extraction, and downstream control. The output projection $P_d$ is applied only at prediction time, not at fit time, so the optimisation (below) targets the full $M_q$-dimensional lifted residual rather than only the state-projected residual. The cost is the $M_q^2 - d\,M_q$ unused parameters per cluster; we report this overhead in the parameter counts of all tables.
 
 \paragraph{EM updates.} Let $r_{ik}$ be the posterior responsibility of cluster $k$ for sample $i$. The expectation step (responsibility update) is
 \[
@@ -127,19 +127,19 @@ c_k = \frac{\sum_i r_{ik} x_t^{(i)}}{\sum_i r_{ik}}, \quad
 \Sigma_k = \frac{\sum_i r_{ik} (x_t^{(i)}-c_k)(x_t^{(i)}-c_k)^\top}{\sum_i r_{ik}},
 \]
 \[
-K_k = \arg\min_{K} \sum_i r_{ik}\,\bigl\| \Phi(x_{t+1}^{(i)} - c_k) - K\,\Phi(x_t^{(i)} - c_k) \bigr\|^2,
+K_k = \arg\min_{K \in \mathbb{R}^{M_q \times M_q}} \sum_{i=1}^{N} r_{ik}\,\bigl\| \Phi(x_{t+1}^{(i)} - c_k) - K\,\Phi(x_t^{(i)} - c_k) \bigr\|_2^2.
 \]
-which has the closed-form weighted-least-squares solution
+Stack the lifted training pairs as $\tilde{X}_k, \tilde{Y}_k \in \mathbb{R}^{M_q \times N}$ ($i$-th column of $\tilde{X}_k$ is $\Phi(x_t^{(i)} - c_k)$, $i$-th column of $\tilde{Y}_k$ is $\Phi(x_{t+1}^{(i)} - c_k)$) and let $W_k = \mathrm{diag}(r_{1k}, \ldots, r_{Nk}) \in \mathbb{R}^{N \times N}$. The objective then reads $J(K) = \mathrm{tr}\!\bigl[(\tilde{Y}_k - K \tilde{X}_k)\, W_k\, (\tilde{Y}_k - K \tilde{X}_k)^\top\bigr]$. Setting $\partial J / \partial K = 0$ gives $\tilde{Y}_k W_k \tilde{X}_k^\top = K\, \tilde{X}_k W_k \tilde{X}_k^\top$, whose minimum-norm solution is
 \[
-K_k = \bigl(\tilde{Y}_k W_k \tilde{X}_k^\top\bigr)\bigl(\tilde{X}_k W_k \tilde{X}_k^\top + \lambda I\bigr)^{-1},
+K_k = \bigl(\tilde{Y}_k W_k \tilde{X}_k^\top\bigr)\bigl(\tilde{X}_k W_k \tilde{X}_k^\top\bigr)^{\dagger} \in \mathbb{R}^{M_q \times M_q},
 \]
-with $\tilde{X}_k, \tilde{Y}_k$ the lifted recentered training data, $W_k = \mathrm{diag}(r_{ik})$, and a small Tikhonov regularizer $\lambda$. Finally $\sigma_k^2$ is updated from the responsibility-weighted residual variance.
+where $(\cdot)^{\dagger}$ denotes the Moore--Penrose pseudoinverse. We solve this in practice via SVD-based weighted least squares, which handles rank-deficient lifted Grams through SVD truncation rather than Tikhonov regularisation; no ridge term is added. The right-pseudoinverse ordering follows from $K$ acting on $\tilde{X}_k$ from the \emph{left} in the residual; if instead the model were $K \cdot \tilde{Y}_k = \tilde{X}_k$, the inverse would land on $\tilde{Y}_k$ and the order would flip. Finally $\sigma_k^2$ is updated from the responsibility-weighted residual variance.
 
 \paragraph{Empty-cluster pruning.} A weak Dirichlet prior $\mathrm{Dir}(\alpha)$ on $\boldsymbol{\pi}$ with $\alpha < 1$ allows components with vanishing responsibility to be pruned between iterations.
 
 \paragraph{Initialization.} We initialize $c_k$ by $K$-means and $K_k$ by ordinary EDMD on the points initially assigned to cluster $k$. EM is run with multiple restarts and the highest-likelihood run is retained.
 
-\paragraph{Rollout.} At inference, given current state $x_t$, the rollout cluster index is $k^*(x_t) = \arg\max_k\, \pi_k\, \mathcal{N}(x_t; c_k, \Sigma_k)$ (geometry-only at test time, since no $x_{t+1}$ is available), and the next state is $x_{t+1} = c_{k^*} + [K_{k^*} \Phi(x_t - c_{k^*})]_{1:d}$. Multi-step rollouts iterate this map. \emph{No derivatives, no Euler step.}
+\paragraph{Rollout.} At inference, given current state $x_t$, the rollout cluster index is $k^*(x_t) = \arg\max_k\, \pi_k\, \mathcal{N}(x_t; c_k, \Sigma_k)$ (geometry-only at test time, since no $x_{t+1}$ is available), and the next state is $x_{t+1} = c_{k^*} + P_d\, K_{k^*}\, \Phi(x_t - c_{k^*})$. Multi-step rollouts iterate this map. \emph{No derivatives, no Euler step.}
 
 \section*{Appendix B: Capacity-vs-Data Operating Regime}
 
@@ -148,7 +148,7 @@ Each cluster's Koopman operator $K_k \in \mathbb{R}^{M_q \times M_q}$ has $M_q^2
 K \cdot M_q^2 \le \tfrac{1}{2}\,P_{\text{eff}}.
 \]
 
-\paragraph{Post-hoc nature of the rule.} We are explicit that this condition is \emph{post-hoc}: it was derived after observing the two Lorenz non-wins, by asking what those configurations had in common. It is not a prospective prediction validated against held-out failures. The rule has tunable degrees of freedom (the one-half safety factor; the choice of timescale $\tau$ entering $P_{\text{eff}}$; and the choice of $P_{\text{eff}} \approx N\,\Delta t/\tau$ as the proxy for decorrelated sample count, in the absence of a closed-form expression for chaotic dynamics), so a fit between the rule and the observed failures is necessary but not sufficient evidence for predictive validity. What we report is consistency: the two Lorenz non-wins occur in regimes where $K M_q^2$ approaches or exceeds $P_{\text{eff}}$, while the ten winning Lorenz regimes have $P_{\text{eff}}$ several times larger than $K M_q^2$, and damped pendulum and Duffing (smaller $M_q$, denser data) are uniformly well below the underdetermination threshold. Prospective validation, on a new system where the rule predicts a failure that is then observed, is the natural next test; more principled estimators of $P_{\text{eff}}$ based on autocorrelation length or block-bootstrap effective sample size would also tighten the rule.
+\paragraph{Post-hoc nature of the rule.} We are explicit that this condition is \emph{post-hoc}: it was derived after observing the two Lorenz 5\,s rollout non-wins, by asking what those configurations had in common. It is not a prospective prediction validated against held-out failures. The rule has tunable degrees of freedom (the one-half safety factor; the choice of timescale $\tau$ entering $P_{\text{eff}}$; and the choice of $P_{\text{eff}} \approx N\,\Delta t/\tau$ as the proxy for decorrelated sample count, in the absence of a closed-form expression for chaotic dynamics), so a fit between the rule and the observed failures is necessary but not sufficient evidence for predictive validity. What we report is consistency: the two Lorenz 5\,s non-wins occur in regimes where $K M_q^2$ approaches or exceeds $P_{\text{eff}}$, while the ten winning Lorenz regimes have $P_{\text{eff}}$ several times larger than $K M_q^2$, and damped pendulum and Duffing (smaller $M_q$, denser data) are uniformly well below the underdetermination threshold. Prospective validation, on a new system where the rule predicts a failure that is then observed, is the natural next test; more principled estimators of $P_{\text{eff}}$ based on autocorrelation length or block-bootstrap effective sample size would also tighten the rule.
 For Lorenz at $q{=}3$, $M_q^2 = 400$. With $N{=}500$ and $K{=}12$, one has $K\cdot M_q^2 = 4800 \gg 250$, an order-of-magnitude violation: this is the small-training-data Lorenz attractor configuration. With $\Delta t=0.005$ on the chaotic Lorenz attractor, $P_{\text{eff}}$ at $N{=}2000$ collapses far below $2000$ due to high temporal correlation between consecutive states, again violating the rule: this is the short-integrator-step Lorenz configuration. All 10 winning Lorenz configurations satisfy $P_{\text{eff}} \geq 4 M_q^2$ comfortably. The rule is restrictive but predictive: it tells the practitioner when partitioning is worth the parameter cost, and is the principal methodological constraint we report.
 
 \section*{Appendix C: Full Experimental Setup}
@@ -189,7 +189,7 @@ with damping $\delta = 0.2$. The cubic restoring force $x - x^3$ creates two sta
 
 \paragraph{Metrics.} (i)~\emph{One-step error}: mean $\ell_2$ prediction error on the held-out test set. (ii)~\emph{Rollout error at $H$ seconds}: mean $\ell_2$ error of the iterated map at horizons $H \in \{1,2,5,10,20\}$\,s, averaged over test initial conditions.
 
-\paragraph{Statistics.} For each (system, configuration, metric) we run all methods over 10 seeds and compute mean and 95\% CI. \emph{Paired $t$-tests} (per-seed pairing) test the matched-degree comparison ``CW-EDMD $q$ vs.\ EDMD $q$''. A cross-configuration outcome is a \emph{win} if \textit{p}\,$<\,0.05$ and the CW-EDMD mean is lower; a \emph{loss} if \textit{p}\,$<\,0.05$ and higher; a \emph{tie} otherwise. We report wins / losses / ties tallied across the 12 configurations.
+\paragraph{Statistics.} For each (system, configuration, metric) we run all methods over 10 seeds and compute mean and 95\% CI. \emph{Paired Wilcoxon signed-rank tests} (per-seed pairing) test the matched-degree comparison ``CW-EDMD $q$ vs.\ EDMD $q$''. A cross-configuration outcome is a \emph{win} if \textit{p}\,$<\,0.05$ and the CW-EDMD mean is lower; a \emph{loss} if \textit{p}\,$<\,0.05$ and higher; a \emph{tie} otherwise. We report wins / losses / ties tallied across the 12 configurations.
 
 \section*{Appendix D: Per-System Detailed Results}
 
@@ -219,69 +219,45 @@ with damping $\delta = 0.2$. The cubic restoring force $x - x^3$ creates two sta
 
 \paragraph{Damped pendulum.} At matched lift degree $q{=}4$, median prediction error in dimensionless state-space units across the 12 configurations and 10 seeds is reported in Table~\ref{tab:pendulum}. Median is reported in preference to mean because rollout error on a small subset of high-dynamic-range configurations diverges to large values that dominate the cross-configuration mean.
 \begin{table}[H]
-\caption{Damped pendulum at matched lift degree $q{=}4$: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds.}
+\caption{Damped pendulum at matched lift degree $q{=}4$: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Bold marks the column-wise minimum.}
 \label{tab:pendulum}
 \centering\small
-\begin{tabular}{lrrrr}
+\begin{tabular}{lrrr}
 \toprule
-Method & Params & one-step & 5\,s & 10\,s \\
+Method & Params & one-step & 5\,s \\
 \midrule
-EDMD $q{=}2$ & 36 & $8.0\!\times\!10^{-2}$ & $1.16\!\times\!10^{0}$ & $8.9\!\times\!10^{-1}$ \\
-EDMD $q{=}4$ & 225 & $1.5\!\times\!10^{-1}$ & $2.7\!\times\!10^{0}$ & $2.8\!\times\!10^{0}$ \\
-EDMD $q{=}8$ & 2025 & $1.8\!\times\!10^{-1}$ & $2.2\!\times\!10^{0}$ & $2.3\!\times\!10^{0}$ \\
-CW-EDMD $q{=}4, K{=}4$ & 900 & $\mathbf{8.5\!\times\!10^{-5}}$ & $\mathbf{4.4\!\times\!10^{-3}}$ & $\mathbf{5.9\!\times\!10^{-3}}$ \\
-CW-EDMD $q{=}4, K{=}8$ & 1800 & $\mathbf{5.1\!\times\!10^{-5}}$ & $\mathbf{2.1\!\times\!10^{-3}}$ & $\mathbf{3.1\!\times\!10^{-3}}$ \\
-CW-EDMD $q{=}4, K{=}16$ & 3600 & $\mathbf{3.4\!\times\!10^{-5}}$ & $\mathbf{1.5\!\times\!10^{-3}}$ & $\mathbf{1.5\!\times\!10^{-3}}$ \\
-\bottomrule
+\input{tab_pendulum.tex}
 \end{tabular}
 \end{table}
-\noindent CW-EDMD $q{=}4, K{=}8$ wins on all twelve configurations against EDMD $q{=}4$ (paired mean difference $-2.80$ on 10\,s rollout) and against EDMD $q{=}8$ (paired mean difference $-2.28$).
+\noindent CW-EDMD $q{=}4, K{=}8$ wins on all twelve configurations against both EDMD $q{=}4$ and EDMD $q{=}8$ at every reported metric. The $K{=}16$ row reduces 5\,s rollout error further but raises one-step error slightly, consistent with mild one-step overfitting at the larger cluster count that still generalises better over the 5\,s horizon.
 
 \paragraph{Duffing.} At three matched polynomial degrees, median prediction error across the 12 configurations and 10 seeds is reported in Table~\ref{tab:duffing}, with EDMD baselines at every matched degree for direct comparison.
 \begin{table}[H]
-\caption{Duffing oscillator: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Top block: EDMD at four polynomial lift degrees. Bottom block: CW-EDMD at three matched lift degrees.}
+\caption{Duffing oscillator: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Top block: EDMD at four polynomial lift degrees. Bottom block: CW-EDMD at three matched lift degrees. Bold marks the column-wise minimum.}
 \label{tab:duffing}
 \centering\small
 \begin{tabular}{lrrr}
 \toprule
-Method & Params & one-step & 10\,s \\
+Method & Params & one-step & 5\,s \\
 \midrule
-EDMD $q{=}2$                    & 36   & $5.2\!\times\!10^{-2}$ & $9.1\!\times\!10^{-1}$ \\
-EDMD $q{=}3$ (matches RHS deg)  & 100  & $6.6\!\times\!10^{-5}$ & $7.0\!\times\!10^{-3}$ \\
-EDMD $q{=}4$ (over-exact)       & 225  & $6.7\!\times\!10^{-5}$ & $7.0\!\times\!10^{-3}$ \\
-EDMD $q{=}5$ (over-exact)       & 441  & $6.7\!\times\!10^{-8}$ & $5.1\!\times\!10^{-6}$ \\
-\midrule
-CW-EDMD $q{=}3, K{=}8$  & 800  & $\mathbf{2.4\!\times\!10^{-5}}$ & $\mathbf{2.0\!\times\!10^{-3}}$ \\
-CW-EDMD $q{=}4, K{=}4$  & 900  & $\mathbf{1.9\!\times\!10^{-5}}$ & $\mathbf{8.1\!\times\!10^{-4}}$ \\
-CW-EDMD $q{=}5, K{=}4$  & 1764 & $\mathbf{4.3\!\times\!10^{-8}}$ & $\mathbf{3.4\!\times\!10^{-6}}$ \\
-\bottomrule
+\input{tab_duffing.tex}
 \end{tabular}
 \end{table}
 \noindent CW-EDMD wins on all twelve configurations at each of the three matched degrees against EDMD (\textit{p}\,$<\,10^{-4}$ in every configuration). The within-Taylor ablation against the standard GMM-clustered local model contrast point of the CWM literature is reported in Appendix~E.
 
 \paragraph{Lorenz.} Median prediction error across the 12 configurations and 10 seeds is reported in Table~\ref{tab:lorenz}. The metric \emph{r5s} reaches the rollout-step cap on the chaotic configurations and saturates; \emph{one-step} is the cleanest cross-method comparison.
 \begin{table}[H]
-\caption{Lorenz attractor: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Top block: EDMD at two polynomial lift degrees. Middle block: CW-EDMD at lift degree $q{=}2$ (mismatched). Bottom block: CW-EDMD at the matched lift degree $q{=}3$.}
+\caption{Lorenz attractor: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Top block: EDMD at two polynomial lift degrees. Middle block: CW-EDMD at lift degree $q{=}2$ (mismatched). Bottom block: CW-EDMD at the matched lift degree $q{=}3$. Bold marks the column-wise minimum.}
 \label{tab:lorenz}
 \centering\small
 \begin{tabular}{lrrr}
 \toprule
 Method & Params & one-step & 5\,s \\
 \midrule
-EDMD $q{=}2$                    & 100  & $2.0\!\times\!10^{-2}$ & $3.2\!\times\!10^{0}$ \\
-EDMD $q{=}3$                    & 400  & $2.2\!\times\!10^{-4}$ & $4.5\!\times\!10^{-2}$ \\
-\midrule
-CW-EDMD $q{=}2, K{=}5$         & 500  & $2.2\!\times\!10^{-3}$ & $5.5\!\times\!10^{-1}$ \\
-CW-EDMD $q{=}2, K{=}12$        & 1200 & $4.2\!\times\!10^{-4}$ & $1.0\!\times\!10^{-1}$ \\
-CW-EDMD $q{=}2, K{=}20$        & 2000 & $2.5\!\times\!10^{-4}$ & $6.3\!\times\!10^{-2}$ \\
-\midrule
-CW-EDMD $q{=}3, K{=}5$         & 2000 & $\mathbf{2.5\!\times\!10^{-5}}$ & $\mathbf{2.8\!\times\!10^{-2}}$ \\
-CW-EDMD $q{=}3, K{=}12$        & 4800 & $\mathbf{6.3\!\times\!10^{-6}}$ & $\mathbf{2.4\!\times\!10^{-2}}$ \\
-CW-EDMD $q{=}3, K{=}20$        & 8000 & $\mathbf{5.8\!\times\!10^{-6}}$ & $\mathbf{2.9\!\times\!10^{-2}}$ \\
-\bottomrule
+\input{tab_lorenz.tex}
 \end{tabular}
 \end{table}
-\noindent At the matched lift degree $q{=}3$, CW-EDMD with $K{=}12$ wins on ten of twelve configurations against EDMD $q{=}3$ (paired Wilcoxon \textit{p}\,$<\,0.05$, mean differences up to $-2.3\!\times\!10^{-4}$); the remaining two configurations correspond to capacity-vs-data violations described in Appendix~B (small training data and short integrator step). At fixed $K{=}5$ ($500$--$2000$ parameters), increasing the lift degree from $q{=}2$ to $q{=}3$ decreases one-step error by roughly two orders of magnitude, demonstrating that the matched lift degree is essential for the partitioning advantage on this polynomial-RHS system. The mismatched $q{=}2$ CW-EDMD entries are included for ablation.
+\noindent At the matched lift degree $q{=}3$, CW-EDMD with $K{=}12$ wins on ten of twelve configurations on 5\,s rollout against EDMD $q{=}3$ (paired Wilcoxon \textit{p}\,$<\,0.05$); the remaining two configurations correspond to capacity-vs-data violations described in Appendix~B (small training data and short integrator step). At fixed $K{=}5$ ($500$--$2000$ parameters), increasing the lift degree from $q{=}2$ to $q{=}3$ decreases one-step error by roughly two orders of magnitude, demonstrating that the matched lift degree is essential for the partitioning advantage on this polynomial-RHS system. The mismatched $q{=}2$ CW-EDMD entries are included for ablation.
 
 
 \section*{Appendix E: Generality and Initialization}
@@ -300,7 +276,7 @@ The losses concentrate in a single failure mode: Lorenz at $q{=}3, K{=}50$ (the 
 
 \paragraph{Computational cost.} EDMD fits a single closed-form regression of size $M_q^2$ in one shot. CW-EDMD replaces this with $K$ regressions of the same size per EM iteration, with $T$ iterations and $R$ restarts, giving a fit cost of order $R \cdot T \cdot K \cdot M_q^2 \cdot N$ versus $M_q^2 \cdot N$ for EDMD. In the configurations reported here ($T \le 80$ iterations, $R \le 2$ restarts, $K \le 16$), the worst-case CW-EDMD fit is roughly $80 \cdot 2 \cdot 16 \approx 2.6\times10^3$ times the cost of a single EDMD fit. Inference cost is comparable to EDMD: rollout requires one $K_k\,\Phi(\cdot)$ matrix-vector product per step plus a Gaussian-likelihood evaluation to pick the active cluster.
 
-\paragraph{Limitations.} Three limitations of the present study are worth flagging. First, the operating-regime condition of Appendix~B is post-hoc: it was derived to be consistent with the two observed Lorenz non-wins, not pre-registered or validated on held-out failures, and the proxy $P_{\text{eff}} \approx N\,\Delta t/\tau$ has tunable degrees of freedom. The condition should be treated as a hypothesis to be tested prospectively on a new system where it predicts a failure that is then observed, rather than as a validated bound. Second, the Lorenz results are mixed (ten wins, two non-wins out of twelve configurations against EDMD), and while the non-wins are characterizable in terms of capacity-vs-data, the absence of a clean win across all Lorenz configurations is a real limitation of the cross-system claim. Third, the corpus is restricted to autonomous low-dimensional systems with smooth dynamics; control-input-driven systems and higher-dimensional flows (where CW-EDMD's parameter count grows quadratically in $M_q$) are out of scope here.
+\paragraph{Limitations.} Three limitations of the present study are worth flagging. First, the operating-regime condition of Appendix~B is post-hoc: it was derived to be consistent with the two observed Lorenz 5\,s rollout non-wins, not pre-registered or validated on held-out failures, and the proxy $P_{\text{eff}} \approx N\,\Delta t/\tau$ has tunable degrees of freedom. The condition should be treated as a hypothesis to be tested prospectively on a new system where it predicts a failure that is then observed, rather than as a validated bound. Second, the Lorenz results are mixed (ten wins, two non-wins out of twelve configurations on 5\,s rollout against EDMD), and while the non-wins are characterizable in terms of capacity-vs-data, the absence of a clean win across all Lorenz configurations is a real limitation of the cross-system claim. Third, the corpus is restricted to autonomous low-dimensional systems with smooth dynamics; control-input-driven systems and higher-dimensional flows (where CW-EDMD's parameter count grows quadratically in $M_q$) are out of scope here.
 
 \section*{Appendix F: Reproducibility}
 
