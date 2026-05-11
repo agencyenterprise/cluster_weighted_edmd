@@ -685,6 +685,33 @@ def lorenz_disc_local_rollout_err(state, inits, n_steps, d, dt, horizons):
     return _lorenz_rollout_inner(inits, dt, n_steps, horizons, _step)
 
 
+def _lorenz_one_step_pairs(X, dt):
+    """Integrate each row of ``X`` forward by ``dt`` via vectorised RK4.
+
+    Same pattern as ``_duffing_one_step_pairs``: one RK4 step per row, four
+    batched vector-field evaluations. Used to derive discrete-EDMD training
+    pairs that respect the configured Lorenz sampling distribution rather
+    than collapsing to a fresh attractor trajectory. Defined here (rather
+    than alongside ``_duffing_one_step_pairs`` deeper in the file) because
+    the top-level Lorenz run block executes before that point in the module
+    -- moving the helper here keeps the def visible at call time.
+    """
+    Xnp = X.cpu().numpy() if hasattr(X, 'cpu') else np.asarray(X)
+    def _f_batch(Xb):
+        x = Xb[:, 0]; y = Xb[:, 1]; z = Xb[:, 2]
+        return np.column_stack((
+            LORENZ_SIGMA * (y - x),
+            x * (LORENZ_RHO - z) - y,
+            x * y - LORENZ_BETA * z,
+        ))
+    k1 = _f_batch(Xnp)
+    k2 = _f_batch(Xnp + 0.5 * dt * k1)
+    k3 = _f_batch(Xnp + 0.5 * dt * k2)
+    k4 = _f_batch(Xnp + dt       * k3)
+    Xn = Xnp + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+    return torch.tensor(Xn, dtype=torch.float64)
+
+
 def _make_lorenz_data(seed):
     """Build train/test data for Lorenz using args.lorenz_distribution.
 
@@ -992,6 +1019,32 @@ def pendulum_eval_rollout(predict_fn, model, inits, n_roll, dt, d, horizons):
     def _step(x):
         return pendulum_euler_step(x[0], predict_fn(x, model)[0], dt)
     return _pendulum_rollout_inner(inits, n_roll, dt, d, horizons, _step)
+
+
+def _pendulum_one_step_pairs(X, dt):
+    """Integrate each row of ``X`` forward by ``dt`` via vectorised RK4.
+
+    Same pattern as ``_duffing_one_step_pairs`` but for the damped pendulum
+    vector field. Used to derive discrete-EDMD training pairs that respect
+    the configured Pendulum sampling distribution rather than collapsing to
+    a fixed trajectory-ensemble sample. Defined here (rather than alongside
+    ``_duffing_one_step_pairs`` deeper in the file) because the top-level
+    Pendulum run block executes before that point in the module -- moving
+    the helper here keeps the def visible at call time.
+    """
+    Xnp = X.cpu().numpy() if hasattr(X, 'cpu') else np.asarray(X)
+    def _f_batch(Xb):
+        theta = Xb[:, 0]; theta_dot = Xb[:, 1]
+        return np.column_stack((
+            theta_dot,
+            -np.sin(theta) - PENDULUM_GAMMA * theta_dot,
+        ))
+    k1 = _f_batch(Xnp)
+    k2 = _f_batch(Xnp + 0.5 * dt * k1)
+    k3 = _f_batch(Xnp + 0.5 * dt * k2)
+    k4 = _f_batch(Xnp + dt       * k3)
+    Xn = Xnp + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+    return torch.tensor(Xn, dtype=torch.float64)
 
 
 def _make_pendulum_data(seed):
@@ -1398,53 +1451,6 @@ def _duffing_one_step_pairs(X, dt):
         return np.column_stack((
             xd,
             -DUFFING_DELTA * xd + x - x ** 3,
-        ))
-    k1 = _f_batch(Xnp)
-    k2 = _f_batch(Xnp + 0.5 * dt * k1)
-    k3 = _f_batch(Xnp + 0.5 * dt * k2)
-    k4 = _f_batch(Xnp + dt       * k3)
-    Xn = Xnp + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-    return torch.tensor(Xn, dtype=torch.float64)
-
-
-def _lorenz_one_step_pairs(X, dt):
-    """Integrate each row of ``X`` forward by ``dt`` via vectorised RK4.
-
-    Same pattern as ``_duffing_one_step_pairs``: one RK4 step per row, four
-    batched vector-field evaluations. Used to derive discrete-EDMD training
-    pairs that respect the configured Lorenz sampling distribution rather
-    than collapsing to a fresh attractor trajectory.
-    """
-    Xnp = X.cpu().numpy() if hasattr(X, 'cpu') else np.asarray(X)
-    def _f_batch(Xb):
-        x = Xb[:, 0]; y = Xb[:, 1]; z = Xb[:, 2]
-        return np.column_stack((
-            LORENZ_SIGMA * (y - x),
-            x * (LORENZ_RHO - z) - y,
-            x * y - LORENZ_BETA * z,
-        ))
-    k1 = _f_batch(Xnp)
-    k2 = _f_batch(Xnp + 0.5 * dt * k1)
-    k3 = _f_batch(Xnp + 0.5 * dt * k2)
-    k4 = _f_batch(Xnp + dt       * k3)
-    Xn = Xnp + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-    return torch.tensor(Xn, dtype=torch.float64)
-
-
-def _pendulum_one_step_pairs(X, dt):
-    """Integrate each row of ``X`` forward by ``dt`` via vectorised RK4.
-
-    Same pattern as ``_duffing_one_step_pairs`` but for the damped pendulum
-    vector field. Used to derive discrete-EDMD training pairs that respect
-    the configured Pendulum sampling distribution rather than collapsing to
-    a fixed trajectory-ensemble sample.
-    """
-    Xnp = X.cpu().numpy() if hasattr(X, 'cpu') else np.asarray(X)
-    def _f_batch(Xb):
-        theta = Xb[:, 0]; theta_dot = Xb[:, 1]
-        return np.column_stack((
-            theta_dot,
-            -np.sin(theta) - PENDULUM_GAMMA * theta_dot,
         ))
     k1 = _f_batch(Xnp)
     k2 = _f_batch(Xnp + 0.5 * dt * k1)
