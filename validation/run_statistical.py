@@ -67,6 +67,9 @@ from utils.stats import confidence_interval, paired_test
 
 from simulators.lorenz import (
     generate_data as lorenz_generate, f as lorenz_f, J as lorenz_J,
+    SIGMA                    as LORENZ_SIGMA,
+    RHO                      as LORENZ_RHO,
+    BETA                     as LORENZ_BETA,
     sample_uniform           as lorenz_sample_uniform,
     sample_gaussian          as lorenz_sample_gaussian,
     sample_gaussian_mixture  as lorenz_sample_gaussian_mixture,
@@ -75,6 +78,7 @@ from simulators.lorenz import (
 )
 from simulators.pendulum import (
     f as pendulum_f, J as pendulum_J,
+    GAMMA                     as PENDULUM_GAMMA,
     sample_phase_space, generate_trajectory, wrap_theta, angular_dist,
     sample_gaussian           as pendulum_sample_gaussian,
     sample_gaussian_mixture   as pendulum_sample_gaussian_mixture,
@@ -706,18 +710,26 @@ def _make_lorenz_data(seed):
         X_tr = torch.tensor(train['X'], dtype=torch.float64)
         F_tr = torch.tensor(train['F'], dtype=torch.float64)
 
-        # Test set + discrete-EDMD pairs come from a fresh attractor trajectory
-        # so prediction-error metrics measure generalization to the invariant
-        # set independently of the training distribution.
+        # Test set still comes from a fresh attractor trajectory so prediction
+        # error measures generalization to the invariant set; that part is
+        # intentional and unchanged.
         ref = lorenz_generate(n_steps=args.lorenz_n_steps, dt=dt,
                               warmup=args.lorenz_warmup, seed=seed + 10000)
         X_all = torch.tensor(ref['X'], dtype=torch.float64)
         F_all = torch.tensor(ref['F'], dtype=torch.float64)
-        n_pair = max(nt, 4000)
         X_te_in   = X_all[:X_all.shape[0] - 1]
         X_te_next = X_all[1:]
-        X_tr_curr = X_all[:n_pair - 1]
-        X_tr_next = X_all[1:n_pair]
+
+        # Discrete-EDMD training pairs are derived from the configured-
+        # distribution sample (X_tr), one-step forward via vectorised RK4.
+        # Previously these were sliced from the fresh attractor trajectory,
+        # which silently collapsed the distribution sweep for discrete
+        # methods (every non-attractor config produced the same pairs modulo
+        # seed shift, yielding bitwise-identical CW-EDMD/EDMD fits across
+        # gaussian/uniform/periodic_noise/etc.). Tying the pairs to X_tr
+        # restores the sweep's distribution variation.
+        X_tr_curr = X_tr
+        X_tr_next = _lorenz_one_step_pairs(X_tr_curr, dt)
 
     step_bl = torch.linalg.norm(X_te_next - X_te_in, dim=1).mean().item()
     return (X_all, F_all, X_tr, F_tr,
@@ -998,10 +1010,14 @@ def run_pendulum_seed(seed):
 
     results = {}
 
-    # Generate trajectory pairs for discrete EDMD (independent of training
-    # distribution; needed because discrete-EDMD baselines fit on (x_t, x_{t+1}))
-    X_tr_curr, X_tr_next = pendulum_generate_trajectory_pairs(
-        args.pendulum_n_trajs, args.pendulum_traj_len, dt, seed)
+    # Discrete-EDMD training pairs are derived from the configured-distribution
+    # sample (X_tr), one-step forward via vectorised RK4. Previously these came
+    # from ``pendulum_generate_trajectory_pairs`` (a fixed trajectory-ensemble
+    # sampler that ignores args.pendulum_distribution), which silently
+    # collapsed the distribution sweep for discrete methods. Tying the pairs
+    # to X_tr restores the sweep's distribution variation.
+    X_tr_curr = X_tr
+    X_tr_next = _pendulum_one_step_pairs(X_tr_curr, dt)
 
     # Discrete test pairs: integrate from test inits for one step
     X_te_disc_curr = X_te
@@ -1361,6 +1377,53 @@ def _duffing_one_step_pairs(X, dt):
         return np.column_stack((
             xd,
             -DUFFING_DELTA * xd + x - x ** 3,
+        ))
+    k1 = _f_batch(Xnp)
+    k2 = _f_batch(Xnp + 0.5 * dt * k1)
+    k3 = _f_batch(Xnp + 0.5 * dt * k2)
+    k4 = _f_batch(Xnp + dt       * k3)
+    Xn = Xnp + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+    return torch.tensor(Xn, dtype=torch.float64)
+
+
+def _lorenz_one_step_pairs(X, dt):
+    """Integrate each row of ``X`` forward by ``dt`` via vectorised RK4.
+
+    Same pattern as ``_duffing_one_step_pairs``: one RK4 step per row, four
+    batched vector-field evaluations. Used to derive discrete-EDMD training
+    pairs that respect the configured Lorenz sampling distribution rather
+    than collapsing to a fresh attractor trajectory.
+    """
+    Xnp = X.cpu().numpy() if hasattr(X, 'cpu') else np.asarray(X)
+    def _f_batch(Xb):
+        x = Xb[:, 0]; y = Xb[:, 1]; z = Xb[:, 2]
+        return np.column_stack((
+            LORENZ_SIGMA * (y - x),
+            x * (LORENZ_RHO - z) - y,
+            x * y - LORENZ_BETA * z,
+        ))
+    k1 = _f_batch(Xnp)
+    k2 = _f_batch(Xnp + 0.5 * dt * k1)
+    k3 = _f_batch(Xnp + 0.5 * dt * k2)
+    k4 = _f_batch(Xnp + dt       * k3)
+    Xn = Xnp + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+    return torch.tensor(Xn, dtype=torch.float64)
+
+
+def _pendulum_one_step_pairs(X, dt):
+    """Integrate each row of ``X`` forward by ``dt`` via vectorised RK4.
+
+    Same pattern as ``_duffing_one_step_pairs`` but for the damped pendulum
+    vector field. Used to derive discrete-EDMD training pairs that respect
+    the configured Pendulum sampling distribution rather than collapsing to
+    a fixed trajectory-ensemble sample.
+    """
+    Xnp = X.cpu().numpy() if hasattr(X, 'cpu') else np.asarray(X)
+    def _f_batch(Xb):
+        theta = Xb[:, 0]; theta_dot = Xb[:, 1]
+        return np.column_stack((
+            theta_dot,
+            -np.sin(theta) - PENDULUM_GAMMA * theta_dot,
         ))
     k1 = _f_batch(Xnp)
     k2 = _f_batch(Xnp + 0.5 * dt * k1)
