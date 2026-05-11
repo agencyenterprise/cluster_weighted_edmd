@@ -86,20 +86,33 @@ def render(system, metric, out_name):
     sys_rows = [r for r in rows if r['system'] == system and r['metric'] == metric
                 and family(r['method']) != 'EDMD-pykoopman']
 
-    groups = defaultdict(list)
+    # Step 1: per-(config, method) mean across seeds.
+    seed_groups = defaultdict(list)
     for r in sys_rows:
-        groups[(r['config_name'], r['method'])].append(float(r['value']))
+        seed_groups[(r['config_name'], r['method'])].append(float(r['value']))
+    cfg_method_means = {}
+    for (cfg, m), vals in seed_groups.items():
+        if len(vals) < 2: continue
+        cfg_method_means[(cfg, m)] = statistics.mean(vals)
+
+    # Step 2: collapse the 12-config cluster per method into a single point at
+    # its best-case (smallest mean error) configuration. The previous version
+    # plotted all 12 config points per method, which was visually dense and
+    # mostly redundant since labels and Pareto frontier already operate per
+    # method. One point per (method, hyperparameter) keeps the Pareto envelope
+    # clear without losing any information that the figure was actually using.
+    by_method = defaultdict(list)
+    for (cfg, m), mean in cfg_method_means.items():
+        by_method[m].append(mean)
 
     agg = []
-    for (cfg, m), vals in groups.items():
-        if len(vals) < 2: continue
-        mean = statistics.mean(vals)
-        sd   = statistics.stdev(vals)
-        ci   = 1.96 * sd / np.sqrt(len(vals))
+    for m, means in by_method.items():
+        best = min(means)
         p, ps = params(m, d)
-        if p is None or not np.isfinite(mean) or mean <= 0: continue
-        agg.append({'config': cfg, 'method': m, 'family': family(m),
-                    'params': p, 'mean': mean, 'ci': ci, 'param_str': ps})
+        if p is None or not np.isfinite(best) or best <= 0: continue
+        agg.append({'method': m, 'family': family(m), 'params': p,
+                    'mean': best, 'param_str': ps,
+                    'n_configs_seen': len(means)})
 
     if not agg:
         return
@@ -133,20 +146,13 @@ def render(system, metric, out_name):
         if not sub: continue
         xs = np.array([a['params'] for a in sub])
         ys = np.array([a['mean'] for a in sub])
-        cs = np.array([a['ci'] for a in sub])
-        y_floor = max(ys.min() * 0.05, 1e-12) if len(ys) else 1e-12
-        lo = np.clip(ys - cs, y_floor, None)
-        err_low  = ys - lo
-        err_high = cs
         color = _FAM_COLOR.get(fam, '#7f7f7f')
         marker = _FAM_MARKER.get(fam, 'o')
         msize = _FAM_SIZE.get(fam, 7)
         z = _FAM_ZORDER.get(fam, 3)
-        ax.errorbar(xs, ys, yerr=[err_low, err_high],
-                    fmt=marker, color=color, markersize=msize,
-                    markeredgecolor='black', markeredgewidth=0.6,
-                    elinewidth=0.7, capsize=2.5, zorder=z, alpha=0.92,
-                    label=fam)
+        ax.plot(xs, ys, marker, color=color, markersize=msize,
+                markeredgecolor='black', markeredgewidth=0.6,
+                linestyle='none', zorder=z, alpha=0.92, label=fam)
 
     # Pareto frontier line
     pareto_pts.sort(key=lambda a: a['params'])
@@ -163,33 +169,28 @@ def render(system, metric, out_name):
     # adjacent frontier labels can never stack. Each entry is (dx_mult, dy_mult)
     # on the underlying log-scale data. After placing each label we also repel
     # it from previously-placed labels if their bboxes would otherwise overlap.
-    base_offsets = [
-        (0.78, 5.0),    # high-left
-        (1.30, 0.16),   # low-right
-        (0.62, 9.0),    # higher-left
-        (1.65, 0.09),   # lower-right
-        (0.50, 16.0),   # taller-left
-        (2.10, 0.05),   # deeper-right
-        (0.42, 28.0),   # tallest-left
-        (2.70, 0.030),  # deepest-right
-    ]
+    # Pure-vertical labels, all placed ABOVE their markers (never below — placing
+    # below the rightmost low-y points pushed labels into the x-axis text). The
+    # offsets alternate between two heights so adjacent labels at similar x do
+    # not stack on the rendered y-axis. All multipliers are >1.
+    dy_offsets = [1.8, 4.0, 2.4, 7.0, 3.2, 12.0, 4.8, 20.0]
     placed = []
     for i, a in enumerate(frontier_label_pts):
         ps = a['param_str']
         if not ps: continue
-        dx, dy = base_offsets[i % len(base_offsets)]
-        text_x = a['params'] * dx
-        text_y = a['mean']   * dy
-        # Repel from previously-placed labels in log space
+        dy = dy_offsets[i % len(dy_offsets)]
+        text_x = a['params']
+        text_y = a['mean'] * dy
+        # Repel from previously-placed labels: if too close in log-x AND log-y,
+        # push current label further upward.
         for (px, py) in placed:
             if px <= 0 or py <= 0: continue
-            if abs(np.log10(text_x) - np.log10(px)) < 0.18 \
-               and abs(np.log10(text_y) - np.log10(py)) < 0.45:
-                text_x *= (0.55 if dx < 1 else 1.85)
-                text_y *= (0.55 if dy < 1 else 1.60)
+            if abs(np.log10(text_x) - np.log10(px)) < 0.10 \
+               and abs(np.log10(text_y) - np.log10(py)) < 0.25:
+                text_y *= 1.55
         placed.append((text_x, text_y))
-        va = 'bottom' if dy > 1 else 'top'
-        ha = 'right' if dx < 1 else 'left'
+        va = 'bottom'
+        ha = 'center'
         ax.annotate(ps, xy=(a['params'], a['mean']),
                     xytext=(text_x, text_y),
                     textcoords='data', ha=ha, va=va,
@@ -207,10 +208,10 @@ def render(system, metric, out_name):
     ax.set_ylabel(f'Mean {metric_label} (log scale)', fontsize=11)
     ax.grid(which='both', alpha=0.3, zorder=1)
     ax.set_axisbelow(True)
-    n_configs = len({a['config'] for a in agg})
+    n_configs = max((a['n_configs_seen'] for a in agg), default=0)
     sys_disp = SYSTEM_DISPLAY.get(system, system.capitalize())
     ax.set_title(f"{sys_disp}: parameters vs. {metric_label}\n"
-                 f"(across {n_configs} configurations; mean ± 95% CI; "
+                 f"(best of {n_configs} configurations per method; "
                  "lower-left is better)",
                  fontsize=11)
     ax.legend(fontsize=10, loc='best', framealpha=0.94)

@@ -30,7 +30,7 @@
 \date{}
 
 \author{%
-	Lorenzo Tomaz\thanks{Corresponding author.}, Judd Rosenblatt, Flavio Kicis, Thomas B. Jones, Diogo de Lucena \\
+	Lorenzo Tomaz\thanks{Corresponding author.}, Judd Rosenblatt, Flavio Kicis, Thomas B. Jones, Diogo Schwerz de Lucena \\
 	AE Studio \\
 	\texttt{\{lorenzo, judd, flavio.kicis, thomas, diogo\}@ae.studio}
 }
@@ -41,7 +41,7 @@
 \hypersetup{
 pdftitle={Cluster-Weighted EDMD},
 pdfsubject={SCML2026 Abstract},
-pdfauthor={Lorenzo Tomaz, Judd Rosenblatt, Flavio Kicis, Thomas B. Jones, Diogo de Lucena},
+pdfauthor={Lorenzo Tomaz, Judd Rosenblatt, Flavio Kicis, Thomas B. Jones, Diogo Schwerz de Lucena},
 pdfkeywords={Koopman operator, EDMD, cluster-weighted models, EM, dynamical systems},
 }
 
@@ -64,7 +64,7 @@ Extended Dynamic Mode Decomposition (EDMD) is the canonical data-driven approxim
 \[
 p(x_t,x_{t+1}) = \sum_{k=1}^{K} \pi_k\, \mathcal{N}(x_t; c_k, \Sigma_k)\, \mathcal{N}(\Delta x_k; 0, \sigma_k^2 I),
 \]
-with per-cluster prediction residual $\Delta x_k = x_{t+1} - c_k - P_d\, K_k\, \Phi(x_t-c_k)$. Here $\Phi$ is a degree-$q$ monomial lift centered at $c_k$, $K_k$ the per-cluster Koopman matrix, and $P_d$ the state projection. EM alternates between updating cluster responsibilities $r_{ik}\propto\pi_k\mathcal{N}(x_t;c_k,\Sigma_k)\mathcal{N}(\Delta x_k;0,\sigma_k^2 I)$, which combine geometric proximity with per-cluster prediction residual, and solving each $K_k$ in closed form by responsibility-weighted least squares, generalizing EDMD to the per-cluster regime (full derivation in Appendix~A).
+with per-cluster prediction residual $\Delta x_k = x_{t+1} - c_k - P_d\, K_k\, \Phi(x_t-c_k)$. Here $\Phi$ is a degree-$q$ monomial lift centered at $c_k$, $K_k$ the per-cluster Koopman matrix, and $P_d$ the state projection. EM alternates between updating cluster responsibilities $r_{ik}\propto\pi_k\mathcal{N}(x_t^{(i)};c_k,\Sigma_k)\mathcal{N}(\Delta x_k^{(i)};0,\sigma_k^2 I)$, which combine geometric proximity with per-cluster prediction residual, and solving each $K_k$ in closed form by responsibility-weighted least squares, generalizing EDMD to the per-cluster regime (full derivation in Appendix~A).
 
 \textbf{Experimental setup.} Three classical systems: Lorenz ($d{=}3$, polynomial-RHS deg-3), damped pendulum ($d{=}2$, non-polynomial $\sin\theta$), double-well Duffing ($d{=}2$, polynomial-RHS deg-3). Each: 12 configurations sweeping five sampling distributions, data size, domain, integrator step, and fit budget; 10 fixed seeds per configuration (full setup in Appendix~C; code and corpus in Appendix~F). We test \emph{matched-degree} CW-EDMD-$q$ against EDMD-$q$ via paired Wilcoxon tests; a \emph{cross-config win} is \textit{p}\,$<\,0.05$ with lower CW-EDMD mean.
 
@@ -76,15 +76,10 @@ with per-cluster prediction residual $\Delta x_k = x_{t+1} - c_k - P_d\, K_k\, \
 \label{tab:headline}
 \centering\footnotesize
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{lccrr}
-\toprule
-System ($q$, $K$) & wins (1-step) & wins (5\,s) & 1-step & 5\,s \\
-\midrule
 \input{tab_headline.tex}
-\end{tabular}
 \end{table}
 
-\noindent\textbf{Results.} CW-EDMD outperforms EDMD at the matched polynomial lift on all three systems (Table~\ref{tab:headline}; per-system Pareto frontiers in Figures~\ref{fig:pareto-duffing}--\ref{fig:pareto-lorenz} and full tables in Appendix~D). On Duffing the matched comparison spans three polynomial degrees ($q\in\{3,4,5\}$, all with $12/12$ wins, paired Wilcoxon \textit{p}\,$<\,10^{-4}$ throughout); the two 5\,s rollout non-wins on Lorenz are characterized by the capacity-vs-data condition of Appendix~B. A direct within-EDMD ablation across all three systems isolates the residual-aware mechanism: CW-EDMD wins $271/324$ paired comparisons ($84\%$, Appendix~E).
+\noindent\textbf{Results.} CW-EDMD outperforms EDMD at the matched polynomial lift on all three systems (Table~\ref{tab:headline}; per-system Pareto frontiers in Figures~\ref{fig:pareto-duffing}--\ref{fig:pareto-lorenz} and full tables in Appendix~D). On Duffing the matched comparison spans three polynomial degrees ($q\in\{3,4,5\}$, all with $12/12$ wins, paired Wilcoxon \textit{p}\,$<\,10^{-4}$ throughout); the two 5\,s rollout non-wins on Lorenz are characterized by the capacity-vs-data condition of Appendix~B. A matched-$(q, K)$ within-EDMD ablation across all three systems isolates the residual-aware mechanism: CW-EDMD wins $271/324$ paired comparisons ($84\%$, Appendix~E).
 
 \section*{Acknowledgments}
 This work was conducted at AE Studio. The authors thank colleagues at AE Studio for discussions and feedback during the development of this work.
@@ -109,7 +104,7 @@ This work was conducted at AE Studio. The authors thank colleagues at AE Studio 
 \[
 p(x_t, x_{t+1}) = \sum_{k=1}^{K} \pi_k\, p_X(x_t \mid k)\, p_{Y\mid X}(x_{t+1} \mid x_t, k),
 \]
-where $p_X(\cdot \mid k) = \mathcal{N}(c_k, \Sigma_k)$ is the cluster's geometric component and $p_{Y\mid X}(\cdot \mid x_t, k) = \mathcal{N}(\hat{x}_{t+1\mid k}, \sigma_k^2 I)$ is the per-cluster prediction. Mixture weights $\pi_k$ satisfy $\sum_k \pi_k = 1$. Compared with a Gaussian mixture model (GMM), the second factor introduces \emph{residual awareness}: cluster $k$ takes responsibility only for points it can predict well, not just points geometrically nearby.
+where $p_X(x_t \mid k) = \mathcal{N}(x_t;\, c_k, \Sigma_k)$ is the cluster's geometric component and $p_{Y\mid X}(x_{t+1} \mid x_t, k) = \mathcal{N}(\Delta x_k;\, 0, \sigma_k^2 I)$ is the per-cluster residual density, with $\Delta x_k = x_{t+1} - \hat{x}_{t+1\mid k}$ the prediction error of cluster $k$ on the observed transition. Mixture weights $\pi_k$ satisfy $\sum_k \pi_k = 1$. Compared with a Gaussian mixture model (GMM), the second factor introduces \emph{residual awareness}: cluster $k$ takes responsibility only for points it can predict well, not just points geometrically nearby.
 
 \paragraph{Per-cluster Koopman operator.} For each cluster $k$ with center $c_k$, define the recentered monomial lift $\Phi: \mathbb{R}^d \to \mathbb{R}^{M_q}$ of total degree $\leq q$, where $M_q = \binom{d+q}{q}$. We use the standard EDMD convention that the first $d$ entries of $\Phi(z)$ are the linear monomials $z_1, \ldots, z_d$ themselves, so the projection $P_d \in \mathbb{R}^{d \times M_q}$ defined by $P_d = [I_d \mid 0_{d \times (M_q - d)}]$ satisfies $P_d \Phi(z) = z$. With $K_k \in \mathbb{R}^{M_q \times M_q}$ the per-cluster Koopman matrix, the per-cluster prediction is
 \[
@@ -117,9 +112,9 @@ where $p_X(\cdot \mid k) = \mathcal{N}(c_k, \Sigma_k)$ is the cluster's geometri
 \]
 We retain the full square $K_k$ rather than a rectangular $\mathbb{R}^{d \times M_q}$ regression onto the state because the square form is the standard EDMD discretization of the Koopman operator on the lifted observable space~\citep{williams2015edmd,brunton2022modern}: it preserves the full lifted-space spectrum and lets the operator be reused for spectral analyses, eigenfunction extraction, and downstream control. The output projection $P_d$ is applied only at prediction time, not at fit time, so the optimisation (below) targets the full $M_q$-dimensional lifted residual rather than only the state-projected residual. The cost is the $M_q^2 - d\,M_q$ unused parameters per cluster; we report this overhead in the parameter counts of all tables.
 
-\paragraph{EM updates.} Let $r_{ik}$ be the posterior responsibility of cluster $k$ for sample $i$. The expectation step (responsibility update) is
+\paragraph{EM updates.}\label{par:em-updates} Let $r_{ik}$ be the posterior responsibility of cluster $k$ for sample $i$. The expectation step (responsibility update) is
 \[
-r_{ik} \propto \pi_k\, \mathcal{N}(x_t^{(i)}; c_k, \Sigma_k)\, \mathcal{N}\!\bigl(x_{t+1}^{(i)} - \hat{x}_{t+1\mid k}^{(i)}; 0, \sigma_k^2 I\bigr),
+r_{ik} \propto \pi_k\, \mathcal{N}(x_t^{(i)}; c_k, \Sigma_k)\, \mathcal{N}\!\bigl(\Delta x_k^{(i)}; 0, \sigma_k^2 I\bigr),
 \]
 combining geometric proximity (first Gaussian) with prediction residual (second Gaussian). The maximization step (parameter update) then updates each cluster:
 \[
@@ -133,13 +128,13 @@ Stack the lifted training pairs as $\tilde{X}_k, \tilde{Y}_k \in \mathbb{R}^{M_q
 \[
 K_k = \bigl(\tilde{Y}_k W_k \tilde{X}_k^\top\bigr)\bigl(\tilde{X}_k W_k \tilde{X}_k^\top\bigr)^{\dagger} \in \mathbb{R}^{M_q \times M_q},
 \]
-where $(\cdot)^{\dagger}$ denotes the Moore--Penrose pseudoinverse. We solve this in practice via SVD-based weighted least squares, which handles rank-deficient lifted Grams through SVD truncation rather than Tikhonov regularisation; no ridge term is added. The right-pseudoinverse ordering follows from $K$ acting on $\tilde{X}_k$ from the \emph{left} in the residual; if instead the model were $K \cdot \tilde{Y}_k = \tilde{X}_k$, the inverse would land on $\tilde{Y}_k$ and the order would flip. Finally $\sigma_k^2$ is updated from the responsibility-weighted residual variance.
+where $(\cdot)^{\dagger}$ denotes the Moore--Penrose pseudoinverse, applied only to the right factor. We solve this via SVD-based weighted least squares, which handles rank-deficient lifted Grams through SVD truncation. Finally $\sigma_k^2$ is updated from the responsibility-weighted residual variance.
 
 \paragraph{Empty-cluster pruning.} A weak Dirichlet prior $\mathrm{Dir}(\alpha)$ on $\boldsymbol{\pi}$ with $\alpha < 1$ allows components with vanishing responsibility to be pruned between iterations.
 
 \paragraph{Initialization.} We initialize $c_k$ by $K$-means and $K_k$ by ordinary EDMD on the points initially assigned to cluster $k$. EM is run with multiple restarts and the highest-likelihood run is retained.
 
-\paragraph{Rollout.} At inference, given current state $x_t$, the rollout cluster index is $k^*(x_t) = \arg\max_k\, \pi_k\, \mathcal{N}(x_t; c_k, \Sigma_k)$ (geometry-only at test time, since no $x_{t+1}$ is available), and the next state is $x_{t+1} = c_{k^*} + P_d\, K_{k^*}\, \Phi(x_t - c_{k^*})$. Multi-step rollouts iterate this map. \emph{No derivatives, no Euler step.}
+\paragraph{Rollout.} At inference, given current state $x_t$, the rollout cluster index is $k^*(x_t) = \arg\max_k\, \pi_k\, \mathcal{N}(x_t; c_k, \Sigma_k)$ (geometry-only at test time, since no $x_{t+1}$ is available), and the next state is $x_{t+1} = c_{k^*} + P_d\, K_{k^*}\, \Phi(x_t - c_{k^*})$. Multi-step rollouts iterate this map.
 
 \section*{Appendix B: Capacity-vs-Data Operating Regime}
 
@@ -197,7 +192,7 @@ with damping $\delta = 0.2$. The cubic restoring force $x - x^3$ creates two sta
 	\begin{center}
 		\includegraphics[width=0.85\textwidth]{pareto_duffing.png}
 	\end{center}
-	\caption{\textbf{Duffing Pareto frontier: median one-step error vs.\ parameter count.} Each point is one (method, hyperparameter) combination summarized across 12 configurations $\times$ 10 seeds. Blue: CW-EDMD (the focus of this paper). Orange: EDMD at increasing polynomial degree. Brown: GMM-EDMD (the within-EDMD ablation, with the residual-aware responsibility update replaced by GMM-style proximity-only responsibilities). Green: CW-Taylor (Appendix~E, the Taylor-predictor variant). Pink: GMM-Taylor (the within-Taylor ablation, the standard CWM contrast point of geometry-only responsibilities + per-cluster regression). Dashed: Pareto frontier. CW-EDMD dominates EDMD at the RHS-matched lift ($q{=}3$) and at the saturating-EDMD lift ($q{=}5$, machine-precision regime).}
+	\caption{\textbf{Duffing Pareto frontier: median one-step error vs.\ parameter count.} Each point is one (method, hyperparameter) combination summarized across 12 configurations $\times$ 10 seeds. Ablation variants below (GMM-EDMD, CW-Taylor, GMM-Taylor) are formally defined in Appendix~E. Blue: CW-EDMD (the focus of this paper). Orange: EDMD at increasing polynomial degree. Brown: GMM-EDMD (Appendix~E, the within-EDMD ablation with the residual-aware responsibility update replaced by GMM-style proximity-only responsibilities). Green: CW-Taylor (Appendix~E, the Taylor-predictor variant). Pink: GMM-Taylor (Appendix~E, the within-Taylor ablation: geometry-only responsibilities + per-cluster regression, the standard CWM contrast point). Dashed: Pareto frontier. CW-EDMD dominates EDMD at the RHS-matched lift ($q{=}3$) and at the saturating-EDMD lift ($q{=}5$, machine-precision regime).}
 	\label{fig:pareto-duffing}
 \end{figure}
 
@@ -205,7 +200,7 @@ with damping $\delta = 0.2$. The cubic restoring force $x - x^3$ creates two sta
 	\begin{center}
 		\includegraphics[width=0.85\textwidth]{pareto_pendulum.png}
 	\end{center}
-	\caption{\textbf{Damped pendulum Pareto frontier: median one-step error vs.\ parameter count.} Same conventions as Figure~\ref{fig:pareto-duffing}. Matched-degree CW-EDMD ($q{=}4$, blue stars at the bottom of the plot) strictly dominates all EDMD parameter budgets, including $q{=}8$ at 2025 parameters. Higher polynomial degrees overfit; partitioning does not.}
+	\caption{\textbf{Damped pendulum Pareto frontier: median one-step error vs.\ parameter count.} Each point is one (method, hyperparameter) combination at its best-case configuration over 12 configurations $\times$ 10 seeds. Ablation variants (GMM-EDMD, CW-Taylor, GMM-Taylor) are formally defined in Appendix~E. Blue: CW-EDMD (the focus of this paper). Orange: EDMD at increasing polynomial degree. Brown: GMM-EDMD (Appendix~E, the within-EDMD ablation with the residual-aware responsibility update replaced by GMM-style proximity-only responsibilities). Green: CW-Taylor (Appendix~E, the Taylor-predictor variant). Pink: GMM-Taylor (Appendix~E, the within-Taylor ablation: geometry-only responsibilities + per-cluster regression, the standard CWM contrast point). Dashed: Pareto frontier. Matched-degree CW-EDMD ($q{=}4$, blue stars at the bottom of the plot) strictly dominates all EDMD parameter budgets, including $q{=}8$ at 2025 parameters. Higher polynomial degrees overfit; partitioning does not.}
 	\label{fig:pareto-pendulum}
 \end{figure}
 
@@ -213,7 +208,7 @@ with damping $\delta = 0.2$. The cubic restoring force $x - x^3$ creates two sta
 	\begin{center}
 		\includegraphics[width=0.85\textwidth]{pareto_lorenz.png}
 	\end{center}
-	\caption{\textbf{Lorenz Pareto frontier: median one-step error vs.\ parameter count.} Same conventions as Figure~\ref{fig:pareto-duffing}. CW-EDMD at the matched lift degree $q{=}3$ Pareto-dominates EDMD on the ten configurations satisfying the capacity-vs-data constraint of Appendix~B. The two non-winning configurations (small training data and short integrator step) are dominated by the operating-regime issue, not the partitioning principle.}
+	\caption{\textbf{Lorenz Pareto frontier: median one-step error vs.\ parameter count.} Each point is one (method, hyperparameter) combination at its best-case configuration over 12 configurations $\times$ 10 seeds. Ablation variants (GMM-EDMD, CW-Taylor, GMM-Taylor) are formally defined in Appendix~E. Blue: CW-EDMD (the focus of this paper). Orange: EDMD at increasing polynomial degree. Brown: GMM-EDMD (Appendix~E, the within-EDMD ablation with the residual-aware responsibility update replaced by GMM-style proximity-only responsibilities). Green: CW-Taylor (Appendix~E, the Taylor-predictor variant). Pink: GMM-Taylor (Appendix~E, the within-Taylor ablation: geometry-only responsibilities + per-cluster regression, the standard CWM contrast point). Dashed: Pareto frontier. CW-EDMD at the matched lift degree $q{=}3$ Pareto-dominates EDMD on the ten configurations satisfying the capacity-vs-data constraint of Appendix~B. The two non-winning configurations (small training data and short integrator step) are dominated by the operating-regime issue, not the partitioning principle.}
 	\label{fig:pareto-lorenz}
 \end{figure}
 
@@ -222,12 +217,7 @@ with damping $\delta = 0.2$. The cubic restoring force $x - x^3$ creates two sta
 \caption{Damped pendulum at matched lift degree $q{=}4$: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Bold marks the column-wise minimum.}
 \label{tab:pendulum}
 \centering\small
-\begin{tabular}{lrrr}
-\toprule
-Method & Params & one-step & 5\,s \\
-\midrule
 \input{tab_pendulum.tex}
-\end{tabular}
 \end{table}
 \noindent CW-EDMD $q{=}4, K{=}8$ wins on all twelve configurations against both EDMD $q{=}4$ and EDMD $q{=}8$ at every reported metric. The $K{=}16$ row reduces 5\,s rollout error further but raises one-step error slightly, consistent with mild one-step overfitting at the larger cluster count that still generalises better over the 5\,s horizon.
 
@@ -236,12 +226,7 @@ Method & Params & one-step & 5\,s \\
 \caption{Duffing oscillator: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Top block: EDMD at four polynomial lift degrees. Bottom block: CW-EDMD at three matched lift degrees. Bold marks the column-wise minimum.}
 \label{tab:duffing}
 \centering\small
-\begin{tabular}{lrrr}
-\toprule
-Method & Params & one-step & 5\,s \\
-\midrule
 \input{tab_duffing.tex}
-\end{tabular}
 \end{table}
 \noindent CW-EDMD wins on all twelve configurations at each of the three matched degrees against EDMD (\textit{p}\,$<\,10^{-4}$ in every configuration). The within-Taylor ablation against the standard GMM-clustered local model contrast point of the CWM literature is reported in Appendix~E.
 
@@ -250,12 +235,7 @@ Method & Params & one-step & 5\,s \\
 \caption{Lorenz attractor: median prediction error (dimensionless state-space units) across 12 configurations and 10 seeds. Top block: EDMD at two polynomial lift degrees. Middle block: CW-EDMD at lift degree $q{=}2$ (mismatched). Bottom block: CW-EDMD at the matched lift degree $q{=}3$. Bold marks the column-wise minimum.}
 \label{tab:lorenz}
 \centering\small
-\begin{tabular}{lrrr}
-\toprule
-Method & Params & one-step & 5\,s \\
-\midrule
 \input{tab_lorenz.tex}
-\end{tabular}
 \end{table}
 \noindent At the matched lift degree $q{=}3$, CW-EDMD with $K{=}12$ wins on ten of twelve configurations on 5\,s rollout against EDMD $q{=}3$ (paired Wilcoxon \textit{p}\,$<\,0.05$); the remaining two configurations correspond to capacity-vs-data violations described in Appendix~B (small training data and short integrator step). At fixed $K{=}5$ ($500$--$2000$ parameters), increasing the lift degree from $q{=}2$ to $q{=}3$ decreases one-step error by roughly two orders of magnitude, demonstrating that the matched lift degree is essential for the partitioning advantage on this polynomial-RHS system. The mismatched $q{=}2$ CW-EDMD entries are included for ablation.
 
@@ -264,9 +244,17 @@ Method & Params & one-step & 5\,s \\
 
 \paragraph{CWM framing and approximator-agnostic per-cluster fit.} CW-EDMD instantiates the cluster-weighted-model framework~\citep{gershenfeld1999nature,ingrassia2014linear,punzo2014polynomial} with EDMD as the per-cluster predictor. The CWM joint density $p(x_t, x_{t+1}) = \sum_k \pi_k\, p_k(x_t)\, p_k(x_{t+1}\mid x_t)$ is agnostic in the per-cluster predictor $p_k(x_{t+1}\mid x_t)$. We provide a Taylor-expansion variant in our implementation that replaces the per-cluster EDMD operator with a first-order centered linearization $\hat{x}_{t+1\mid k} = c_k + (I + \Delta t\, J(c_k))(x_t - c_k)$ when an analytic Jacobian is available at cluster centers; the same EM machinery applies. This drop-in substitutability is what we mean by \emph{model-agnostic}: any local approximator that admits a fit-time loss and an inference-time prediction can be substituted. The headline matched-degree comparisons in the main text are restricted to EDMD by design, to make the partitioning hypothesis a clean controlled test on one approximator family.
 
-\paragraph{Within-EDMD ablation: CW-EDMD vs.\ GMM-clustered EDMD at matched $(q, K)$.} To isolate the contribution of the residual-aware responsibility update from the partitioning effect itself, we compare CW-EDMD against an ablation in which the responsibility update is replaced by the GMM-style proximity-only rule (the same $\sigma^2 \to \infty$ degeneration applied to the responsibility computation, with the per-cluster EDMD predictor and lift degree held fixed; we denote this variant \emph{GMM-EDMD}). The ablation is run on all three systems at every configured $(q, K)$ pair, with paired Wilcoxon tests per configuration. Across $324$ paired comparisons (system $\times$ $q$ $\times$ $K$ $\times$ configuration), CW-EDMD wins on $271$ ($84\%$) at $p<0.05$ with lower mean error, ties on $49$ ($15\%$), and loses on $4$ ($1.2\%$).
+\paragraph{Within-EDMD ablation: CW-EDMD vs.\ GMM-clustered EDMD at matched $(q, K)$.} To isolate the contribution of the residual-aware responsibility update from the partitioning effect itself, we compare CW-EDMD against an ablation in which the residual factor is removed from the E-step (the responsibility update in Appendix~A, \emph{EM updates}). Concretely, the CW-EDMD responsibility update
+\[
+r_{ik} \propto \pi_k\, \mathcal{N}(x_t^{(i)}; c_k, \Sigma_k)\, \mathcal{N}(\Delta x_k^{(i)}; 0, \sigma_k^2 I)
+\]
+is replaced by the geometry-only GMM-style update
+\[
+r_{ik} \propto \pi_k\, \mathcal{N}(x_t^{(i)}; c_k, \Sigma_k),
+\]
+which is the $\sigma_k^2 \to \infty$ limit of the residual factor (the residual likelihood degenerates to a constant and drops out). The M-step (updates to $c_k$, $\Sigma_k$, $K_k$, $\pi_k$) is held identical, and the per-cluster EDMD predictor and lift degree $q$ are held fixed; the \emph{only} difference between the two variants is the presence or absence of the residual factor in the E-step. We denote this variant \emph{GMM-EDMD}. It is not a standard baseline in the EDMD literature; it is the natural within-family ablation that isolates the residual-aware responsibility mechanism. The ablation is run on all three systems at every configured $(q, K)$ pair, with paired Wilcoxon tests per configuration. Across $324$ paired comparisons (system $\times$ $q$ $\times$ $K$ $\times$ configuration), CW-EDMD wins on $271$ ($84\%$) at $p<0.05$ with lower mean error, ties on $49$ ($15\%$), and loses on $4$ ($1.2\%$).
 
-The losses concentrate in a single failure mode: Lorenz at $q{=}3, K{=}50$ (the capacity-vs-data violation of Appendix~B). The ties concentrate in another characterizable regime: polynomial-RHS systems at the lift degrees where EDMD itself saturates near machine precision (e.g., on Duffing at $q{=}3, K{=}8$, CW-EDMD median $2.4{\times}10^{-5}$ vs.\ GMM-EDMD median $2.5{\times}10^{-5}$; both methods land at the same floor and the residual-aware advantage is detectable but practically nil). The wins concentrate where the lift cannot fully capture the local dynamics: the damped pendulum at every tested $(q, K)$ ($96/96$ wins, factors of $1.7\times$--$3{,}100\times$), and polynomial-RHS systems at under-exact lift (Lorenz at $q{=}2$: $42/0/6$, factors $1.7\times$--$3.4\times$; Duffing at $q{=}2$: $46/1/1$, factors $7.5\times$--$53\times$). Within the same EDMD predictor family, then, the residual-aware update contributes \emph{decisively} when the polynomial lift is mismatched to the local dynamics, and \emph{negligibly} when the lift is sufficient and both responsibility-update strategies converge on the analytical floor. This is the direct mechanistic measurement that closes the inference: residual-awareness is the source of CW-EDMD's gain in regimes where the partition has work to do, and partitioning per se carries the gain in regimes where the lift suffices.
+The losses concentrate in a single failure mode: Lorenz at $q{=}3, K{=}50$, where the capacity-vs-data condition of Appendix~B is violated by an order of magnitude ($K M_q^2 = 20{,}000$ parameters against on the order of $10^3$ effective samples per typical configuration). The same condition explains the within-EDMD outcome: when each cluster's $K_k$ is severely under-determined, the per-cluster residuals $\Delta x_k$ are dominated by fitting noise rather than partition signal, so CW-EDMD's residual-aware E-step trusts a noisy quantity and over-fits it. GMM-EDMD's geometry-only E-step ignores the residuals and is therefore more robust in this regime: the residual-aware update is a feature only when the residuals it consumes carry usable signal. The ties concentrate in another characterizable regime: polynomial-RHS systems at the lift degrees where EDMD itself saturates near machine precision (e.g., on Duffing at $q{=}3, K{=}8$, CW-EDMD median $2.4{\times}10^{-5}$ vs.\ GMM-EDMD median $2.5{\times}10^{-5}$; both methods land at the same floor and the residual-aware advantage is detectable but practically nil). The wins concentrate where the lift cannot fully capture the local dynamics: the damped pendulum at every tested $(q, K)$ ($96/96$ wins, factors of $1.7\times$--$3{,}100\times$), and polynomial-RHS systems at under-exact lift (Lorenz at $q{=}2$: $42/0/6$, factors $1.7\times$--$3.4\times$; Duffing at $q{=}2$: $46/1/1$, factors $7.5\times$--$53\times$). Within the same EDMD predictor family, then, the residual-aware update contributes \emph{decisively} when the polynomial lift is mismatched to the local dynamics, and \emph{negligibly} when the lift is sufficient and both responsibility-update strategies converge on the analytical floor. This is the direct mechanistic measurement that closes the inference: residual-awareness is the source of CW-EDMD's gain in regimes where the partition has work to do, and partitioning per se carries the gain in regimes where the lift suffices.
 
 \paragraph{Two-mechanism decomposition of CW-EDMD's advantage.} The within-EDMD ablation also implies a decomposition of CW-EDMD's gain over global EDMD into two contributing mechanisms: (i)~\emph{partitioning}, measurable as GMM-EDMD vs.\ EDMD (a per-cluster EDMD operator on a geometrically-clustered partition beats a single global operator at matched lift), and (ii)~\emph{residual-aware responsibilities}, measurable as CW-EDMD vs.\ GMM-EDMD. On polynomial-RHS systems at the lift where EDMD saturates (Lorenz $q{=}3$, Duffing $q{\geq}3$), mechanism (i) carries the gain (e.g., Lorenz $q{=}3, K{=}12$: GMM-EDMD already $40\times$ better than EDMD, with CW-EDMD adding nothing further). On the damped pendulum at any $q$ and on polynomial-RHS systems at lower lift, mechanism (ii) dominates (pendulum $q{=}4, K{=}8$: GMM-EDMD only $1.2\times$ better than EDMD, while CW-EDMD is roughly $2{,}500\times$ better than GMM-EDMD).
 
