@@ -106,7 +106,7 @@ p(x_t, x_{t+1}) = \sum_{k=1}^{K} \pi_k\, p_X(x_t \mid k)\, p_{Y\mid X}(x_{t+1} \
 \]
 where $p_X(x_t \mid k) = \mathcal{N}(x_t;\, c_k, \Sigma_k)$ is the cluster's geometric component and $p_{Y\mid X}(x_{t+1} \mid x_t, k) = \mathcal{N}(\Delta x_k;\, 0, \sigma_k^2 I)$ is the per-cluster residual density, with $\Delta x_k = x_{t+1} - \hat{x}_{t+1\mid k}$ the prediction error of cluster $k$ on the observed transition. Mixture weights $\pi_k$ satisfy $\sum_k \pi_k = 1$. Compared with a Gaussian mixture model (GMM), the second factor introduces \emph{residual awareness}: cluster $k$ takes responsibility only for points it can predict well, not just points geometrically nearby.
 
-\paragraph{Per-cluster Koopman operator.} For each cluster $k$ with center $c_k$, define the recentered monomial lift $\Phi: \mathbb{R}^d \to \mathbb{R}^{M_q}$ of total degree $\leq q$, where $M_q = \binom{d+q}{q}$. We use the standard EDMD convention that the first $d$ entries of $\Phi(z)$ are the linear monomials $z_1, \ldots, z_d$ themselves, so the projection $P_d \in \mathbb{R}^{d \times M_q}$ defined by $P_d = [I_d \mid 0_{d \times (M_q - d)}]$ satisfies $P_d \Phi(z) = z$. With $K_k \in \mathbb{R}^{M_q \times M_q}$ the per-cluster Koopman matrix, the per-cluster prediction is
+\paragraph{Per-cluster Koopman operator.} For each cluster $k$ with center $c_k$, define the recentered monomial lift $\Phi: \mathbb{R}^d \to \mathbb{R}^{M_q}$ of total degree $\leq q$, where $M_q = \binom{d+q}{q}$. We use the bias-first EDMD convention with the constant monomial in entry $1$ followed by the $d$ linear monomials, $\Phi(z) = [1,\, z_1,\, \ldots,\, z_d,\, z_1^2,\, z_1 z_2,\, \ldots]^\top$, so that the linear monomials $z_1, \ldots, z_d$ occupy entries $2, \ldots, d+1$. The projection $P_d \in \mathbb{R}^{d \times M_q}$ defined by $P_d = [0_{d \times 1} \mid I_d \mid 0_{d \times (M_q - d - 1)}]$ then satisfies $P_d \Phi(z) = z$. With $K_k \in \mathbb{R}^{M_q \times M_q}$ the per-cluster Koopman matrix, the per-cluster prediction is
 \[
 \hat{x}_{t+1\mid k} = c_k + P_d\, K_k\, \Phi(x_t - c_k),
 \]
@@ -163,14 +163,14 @@ with parameters $(\sigma, \rho, \beta) = (10, 28, 8/3)$. The attractor exhibits 
 \dot{\theta} = \omega, \qquad
 \dot{\omega} = -\sin\theta - \gamma\, \omega,
 \]
-with damping coefficient $\gamma = 0.1$. The non-polynomial $\sin\theta$ term is the reason no global polynomial lift is exact at any finite degree; this is the system on which the parameter-efficiency advantage of CW-EDMD is largest.
+with damping coefficient $\gamma = 0.2$. The non-polynomial $\sin\theta$ term is the reason no global polynomial lift is exact at any finite degree; this is the system on which the parameter-efficiency advantage of CW-EDMD is largest.
 
 \emph{Double-well Duffing oscillator} ($d=2$, polynomial RHS of degree 3):
 \[
 \dot{x} = v, \qquad
 \dot{v} = x - x^3 - \delta\, v,
 \]
-with damping $\delta = 0.2$. The cubic restoring force $x - x^3$ creates two stable foci at $x = \pm 1$ and an unstable saddle at $x = 0$. The RHS polynomial degree is 3; in our experiments the EDMD lift degree $q{=}5$ is where global EDMD saturates near machine precision, with $q{=}3$ matching the RHS degree itself.
+with damping $\delta = 0.25$. The cubic restoring force $x - x^3$ creates two stable foci at $x = \pm 1$ and an unstable saddle at $x = 0$. The RHS polynomial degree is 3; in our experiments the EDMD lift degree $q{=}5$ is where global EDMD saturates near machine precision, with $q{=}3$ matching the RHS degree itself.
 
 \paragraph{Discretization.} All systems are integrated with vectorized RK4. Pair generation produces $(x_t, x_{t+1})$ at fixed step $\Delta t$, with $\Delta t \in \{0.005, 0.01, 0.05, 0.1\}$ across configurations.
 
@@ -242,7 +242,7 @@ with damping $\delta = 0.2$. The cubic restoring force $x - x^3$ creates two sta
 
 \section*{Appendix E: Generality and Initialization}
 
-\paragraph{CWM framing and approximator-agnostic per-cluster fit.} CW-EDMD instantiates the cluster-weighted-model framework~\citep{gershenfeld1999nature,ingrassia2014linear,punzo2014polynomial} with EDMD as the per-cluster predictor. The CWM joint density $p(x_t, x_{t+1}) = \sum_k \pi_k\, p_k(x_t)\, p_k(x_{t+1}\mid x_t)$ is agnostic in the per-cluster predictor $p_k(x_{t+1}\mid x_t)$. We provide a Taylor-expansion variant in our implementation that replaces the per-cluster EDMD operator with a first-order centered linearization $\hat{x}_{t+1\mid k} = c_k + (I + \Delta t\, J(c_k))(x_t - c_k)$ when an analytic Jacobian is available at cluster centers; the same EM machinery applies. This drop-in substitutability is what we mean by \emph{model-agnostic}: any local approximator that admits a fit-time loss and an inference-time prediction can be substituted. The headline matched-degree comparisons in the main text are restricted to EDMD by design, to make the partitioning hypothesis a clean controlled test on one approximator family.
+\paragraph{CWM framing and approximator-agnostic per-cluster fit.} CW-EDMD instantiates the cluster-weighted-model framework~\citep{gershenfeld1999nature,ingrassia2014linear,punzo2014polynomial} with EDMD as the per-cluster predictor. The CWM joint density $p(x_t, x_{t+1}) = \sum_k \pi_k\, p_k(x_t)\, p_k(x_{t+1}\mid x_t)$ is agnostic in the per-cluster predictor $p_k(x_{t+1}\mid x_t)$. We provide a Taylor-expansion variant in our implementation that replaces the per-cluster EDMD operator with a first-order centered linearization $\hat{x}_{t+1\mid k} = x_t + \Delta t\,[f(c_k) + J(c_k)(x_t - c_k)]$ (one explicit-Euler step on the linearized vector field) when analytic $f$ and $J$ are available at cluster centers; the same EM machinery applies. This drop-in substitutability is what we mean by \emph{model-agnostic}: any local approximator that admits a fit-time loss and an inference-time prediction can be substituted. The headline matched-degree comparisons in the main text are restricted to EDMD by design, to make the partitioning hypothesis a clean controlled test on one approximator family.
 
 \paragraph{Within-EDMD ablation: CW-EDMD vs.\ GMM-clustered EDMD at matched $(q, K)$.} To isolate the contribution of the residual-aware responsibility update from the partitioning effect itself, we compare CW-EDMD against an ablation in which the residual factor is removed from the E-step (the responsibility update in Appendix~A, \emph{EM updates}). Concretely, the CW-EDMD responsibility update
 \[
