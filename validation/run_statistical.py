@@ -610,12 +610,23 @@ def _lorenz_rollout_inner(x0_list, dt, n_steps, horizons, step_fn):
     (or ``step_fn`` itself errors on a non-finite input -- e.g. a Koopman
     operator with unstable eigenvalues that drives the rollout to NaN),
     the trajectory is filled with NaN from that step onward and per-init
-    errors at affected horizons are reported as NaN (not propagated as
-    an exception). Aggregation then uses ``np.nanmean`` so partially-
-    diverged inits still contribute.
+    errors at affected horizons are reported as NaN. Aggregation then
+    uses ``np.nanmean`` so partially-diverged inits still contribute the
+    error from surviving inits to the mean.
+
+    Returns ``out`` with two entries per horizon ``h``:
+      * ``<horizon_key>``: mean error over the inits that did NOT diverge
+        before horizon ``h`` (``NaN`` if all inits diverged before ``h``).
+      * ``div_<horizon_key>``: integer count of inits (out of ``len(x0_list)``)
+        whose rollout diverged before reaching horizon ``h``.
+
+    The divergence count is the missing piece previously hidden by the
+    silent ``nanmean``: it lets downstream report the per-horizon failure
+    rate alongside the mean over survivors instead of conflating the two.
     """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
     errs    = {h: [] for h in horizons}
+    div     = {h: 0  for h in horizons}
     for x0 in x0_list:
         tru  = lorenz_rollout_truth(x0, n_steps, dt)
         traj = torch.zeros(n_steps + 1, 3, dtype=torch.float64)
@@ -640,12 +651,16 @@ def _lorenz_rollout_inner(x0_list, dt, n_steps, horizons, step_fn):
             traj[t + 1] = nxt
         diff = torch.linalg.norm(traj - tru, dim=1)
         for h, idx in indices.items():
-            v = diff[idx].item() if idx < diverged_at else float('nan')
-            errs[h].append(v if np.isfinite(v) else float('nan'))
+            if idx < diverged_at and np.isfinite(diff[idx].item()):
+                errs[h].append(diff[idx].item())
+            else:
+                errs[h].append(float('nan'))
+                div[h] += 1
     out = {}
     for h in horizons:
         vals = np.array(errs[h], dtype=float)
         out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+        out[f'div_{_horizon_key(h)}'] = int(div[h])
     return out
 
 
@@ -914,10 +929,12 @@ def _pendulum_rollout_inner(inits, n_steps, dt, d, horizons, step_fn):
     """Generic pendulum rollout-error eval with angular distance.
 
     Defensive against divergence (see ``_lorenz_rollout_inner`` for the
-    same NaN-handling protocol).
+    same NaN-handling protocol, including the ``div_<horizon_key>`` count
+    fields returned alongside each rollout-error horizon).
     """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
     errs    = {h: [] for h in horizons}
+    div     = {h: 0  for h in horizons}
     for x0 in inits:
         tru = torch.tensor(generate_trajectory(x0.numpy(), n_steps=n_steps, dt=dt),
                            dtype=torch.float64)
@@ -943,12 +960,16 @@ def _pendulum_rollout_inner(inits, n_steps, dt, d, horizons, step_fn):
             traj[t + 1] = nxt
         diff = angular_dist(traj, tru)
         for h, idx in indices.items():
-            v = diff[idx].item() if idx < diverged_at else float('nan')
-            errs[h].append(v if np.isfinite(v) else float('nan'))
+            if idx < diverged_at and np.isfinite(diff[idx].item()):
+                errs[h].append(diff[idx].item())
+            else:
+                errs[h].append(float('nan'))
+                div[h] += 1
     out = {}
     for h in horizons:
         vals = np.array(errs[h], dtype=float)
         out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+        out[f'div_{_horizon_key(h)}'] = int(div[h])
     return out
 
 
@@ -1439,10 +1460,13 @@ def duffing_eval_rollout_taylor(predict_fn, model, dt, n_steps, d, horizons):
     Used only for Variant A (Taylor-analytic / GMM-baseline), which models
     the velocity field. The discrete-EDMD methods (global and local) use
     ``duffing_disc_rollout_err`` / ``duffing_disc_local_rollout_err``
-    instead -- no Euler step, no derivatives.
+    instead. Returns ``div_<horizon_key>`` counts alongside each horizon
+    mean (see ``_lorenz_rollout_inner`` for the divergence-tracking
+    contract).
     """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
     errs    = {h: [] for h in horizons}
+    div     = {h: 0  for h in horizons}
     for x0 in DUFFING_ROLLOUT_INITS:
         tru = torch.tensor(duffing_generate_trajectory(
             x0.numpy(), n_steps=n_steps, dt=dt), dtype=torch.float64)
@@ -1463,19 +1487,28 @@ def duffing_eval_rollout_taylor(predict_fn, model, dt, n_steps, d, horizons):
             traj[t + 1] = nxt
         diff = torch.linalg.norm(traj - tru, dim=1)
         for h, idx in indices.items():
-            v = diff[idx].item() if idx < diverged_at else float('nan')
-            errs[h].append(v if np.isfinite(v) else float('nan'))
+            if idx < diverged_at and np.isfinite(diff[idx].item()):
+                errs[h].append(diff[idx].item())
+            else:
+                errs[h].append(float('nan'))
+                div[h] += 1
     out = {}
     for h in horizons:
         vals = np.array(errs[h], dtype=float)
         out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+        out[f'div_{_horizon_key(h)}'] = int(div[h])
     return out
 
 
 def duffing_disc_rollout_err(model, inits, n_steps, dt, d, horizons):
-    """Discrete-EDMD rollout error (global): iterate Koopman matrix without Euler."""
+    """Discrete-EDMD rollout error (global): iterate Koopman matrix without Euler.
+
+    Returns ``div_<horizon_key>`` counts alongside each horizon mean (see
+    ``_lorenz_rollout_inner`` for the divergence-tracking contract).
+    """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
     errs    = {h: [] for h in horizons}
+    div     = {h: 0  for h in horizons}
     for x0 in inits:
         tru = torch.tensor(duffing_generate_trajectory(
             x0.numpy(), n_steps=n_steps, dt=dt), dtype=torch.float64)
@@ -1495,19 +1528,28 @@ def duffing_disc_rollout_err(model, inits, n_steps, dt, d, horizons):
             traj[t + 1] = nxt
         diff = torch.linalg.norm(traj - tru, dim=1)
         for h, idx in indices.items():
-            v = diff[idx].item() if idx < diverged_at else float('nan')
-            errs[h].append(v if np.isfinite(v) else float('nan'))
+            if idx < diverged_at and np.isfinite(diff[idx].item()):
+                errs[h].append(diff[idx].item())
+            else:
+                errs[h].append(float('nan'))
+                div[h] += 1
     out = {}
     for h in horizons:
         vals = np.array(errs[h], dtype=float)
         out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+        out[f'div_{_horizon_key(h)}'] = int(div[h])
     return out
 
 
 def duffing_disc_local_rollout_err(state, inits, n_steps, dt, d, horizons):
-    """Discrete-EDMD rollout error (local per-cluster Koopman operators)."""
+    """Discrete-EDMD rollout error (local per-cluster Koopman operators).
+
+    Returns ``div_<horizon_key>`` counts alongside each horizon mean (see
+    ``_lorenz_rollout_inner`` for the divergence-tracking contract).
+    """
     indices = {h: min(int(round(h / dt)), n_steps) for h in horizons}
     errs    = {h: [] for h in horizons}
+    div     = {h: 0  for h in horizons}
     for x0 in inits:
         tru = torch.tensor(duffing_generate_trajectory(
             x0.numpy(), n_steps=n_steps, dt=dt), dtype=torch.float64)
@@ -1530,12 +1572,16 @@ def duffing_disc_local_rollout_err(state, inits, n_steps, dt, d, horizons):
             traj[t + 1] = nxt
         diff = torch.linalg.norm(traj - tru, dim=1)
         for h, idx in indices.items():
-            v = diff[idx].item() if idx < diverged_at else float('nan')
-            errs[h].append(v if np.isfinite(v) else float('nan'))
+            if idx < diverged_at and np.isfinite(diff[idx].item()):
+                errs[h].append(diff[idx].item())
+            else:
+                errs[h].append(float('nan'))
+                div[h] += 1
     out = {}
     for h in horizons:
         vals = np.array(errs[h], dtype=float)
         out[_horizon_key(h)] = float(np.nanmean(vals)) if np.isfinite(vals).any() else float('nan')
+        out[f'div_{_horizon_key(h)}'] = int(div[h])
     return out
 
 
