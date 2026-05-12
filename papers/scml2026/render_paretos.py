@@ -105,12 +105,27 @@ def render(system, metric, out_name):
     for (cfg, m), mean in cfg_method_means.items():
         by_method[m].append(mean)
 
+    # Step 2b: restrict EDMD and GMM-EDMD to lift degrees we also ran CW-EDMD
+    # at. Including higher-q EDMD (e.g. q=8 on Pendulum) when CW-EDMD was only
+    # run at q=2,4 would render an unfair cross-degree comparison: the paper's
+    # claim is matched-degree CW-EDMD-q beats EDMD-q, so the figure should
+    # show only the lift degrees where that comparison is actually defined.
+    cw_qs = set()
+    for m in by_method:
+        if family(m) == 'CW-EDMD':
+            q_m = re.search(r'q=(\d+)', m.lower())
+            if q_m: cw_qs.add(int(q_m.group(1)))
+
     agg = []
     for m, means in by_method.items():
+        fam = family(m)
+        if fam in ('EDMD', 'GMM-EDMD'):
+            q_m = re.search(r'q=(\d+)', m.lower())
+            if q_m and int(q_m.group(1)) not in cw_qs: continue
         best = min(means)
         p, ps = params(m, d)
         if p is None or not np.isfinite(best) or best <= 0: continue
-        agg.append({'method': m, 'family': family(m), 'params': p,
+        agg.append({'method': m, 'family': fam, 'params': p,
                     'mean': best, 'param_str': ps,
                     'n_configs_seen': len(means)})
 
@@ -159,7 +174,7 @@ def render(system, metric, out_name):
     px = [a['params'] for a in pareto_pts]
     py = [a['mean']   for a in pareto_pts]
     ax.plot(px, py, '--', color='black', alpha=0.55, linewidth=1.4,
-            zorder=2, label='Pareto frontier')
+            zorder=2, label='Tradeoff frontier')
 
     ax.set_xscale('log')
     ax.set_yscale('log')
@@ -210,8 +225,8 @@ def render(system, metric, out_name):
     ax.set_axisbelow(True)
     n_configs = max((a['n_configs_seen'] for a in agg), default=0)
     sys_disp = SYSTEM_DISPLAY.get(system, system.capitalize())
-    ax.set_title(f"{sys_disp}: parameters vs. {metric_label}\n"
-                 f"(best of {n_configs} configurations per method; "
+    ax.set_title(f"{sys_disp}: accuracy-parameter tradeoff at matched lift degree\n"
+                 f"(best {metric_label} over {n_configs} configurations per method; "
                  "lower-left is better)",
                  fontsize=11)
     ax.legend(fontsize=10, loc='best', framealpha=0.94)
