@@ -14,7 +14,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-CSV_PATH = Path('/Users/lorenzoalencartomaz/projects/client/fractal/bayesian_cluster_linear_approximation/residual_aware_clustering/analysis_2026-05-09_05-47-40_train_cap_4k_rollout_steps_cap_200/all_results.csv')
+CSV_PATH = Path('/Users/lorenzoalencartomaz/projects/client/fractal/bayesian_cluster_linear_approximation/residual_aware_clustering/analysis_2026-05-11_16-18-16_train_cap_4k_rollout_steps_cap_200/all_results.csv')
 OUT_DIR  = Path('/Users/lorenzoalencartomaz/projects/client/fractal/bayesian_cluster_linear_approximation/residual_aware_clustering/papers/scml2026')
 
 _FAMILIES = [

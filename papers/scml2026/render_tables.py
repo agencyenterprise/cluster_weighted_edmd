@@ -30,7 +30,7 @@ from pathlib import Path
 
 CSV_PATH = Path('/Users/lorenzoalencartomaz/projects/client/fractal/'
                 'bayesian_cluster_linear_approximation/residual_aware_clustering/'
-                'analysis_2026-05-09_05-47-40_train_cap_4k_rollout_steps_cap_200/'
+                'analysis_2026-05-11_16-18-16_train_cap_4k_rollout_steps_cap_200/'
                 'all_results.csv')
 OUT_DIR = Path(__file__).parent
 
@@ -40,7 +40,6 @@ D_BY_SYS = {'lorenz': 3, 'pendulum': 2, 'duffing': 2}
 PENDULUM_ROWS = [
     ('EDMD q=2',            None),
     ('EDMD q=4',            None),
-    ('EDMD q=8',            None),
     ('CW-EDMD q=4, K=4',    None),
     ('CW-EDMD q=4, K=8',    None),
     ('CW-EDMD q=4, K=16',   None),

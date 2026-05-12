@@ -219,7 +219,7 @@ with damping $\delta = 0.25$. The cubic restoring force $x - x^3$ creates two st
 \centering\small
 \input{tab_pendulum.tex}
 \end{table}
-\noindent CW-EDMD $q{=}4, K{=}8$ wins on all twelve configurations against both EDMD $q{=}4$ and EDMD $q{=}8$ at every reported metric. The $K{=}16$ row reduces 5\,s rollout error further but raises one-step error slightly, consistent with mild one-step overfitting at the larger cluster count that still generalises better over the 5\,s horizon.
+\noindent At matched lift degree $q{=}4$, CW-EDMD $K{=}8$ wins on $11/12$ configurations on one-step and $10/12$ on 5\,s rollout against EDMD $q{=}4$. The $K{=}16$ row reduces 5\,s rollout error further but raises one-step error only marginally, consistent with mild one-step overfitting at the larger cluster count that still generalises slightly better over the 5\,s horizon.
 
 \paragraph{Duffing.} At three matched polynomial degrees, median prediction error across the 12 configurations and 10 seeds is reported in Table~\ref{tab:duffing}, with EDMD baselines at every matched degree for direct comparison.
 \begin{table}[H]
