@@ -38,17 +38,17 @@ D_BY_SYS = {'lorenz': 3, 'pendulum': 2, 'duffing': 2}
 
 # Each entry: (csv_method_name, optional_label_suffix_in_parens)
 PENDULUM_ROWS = [
-    ('EDMD q=2',            None),
-    ('EDMD q=4',            None),
+    ('EDMD q=2',            'low lift'),
+    ('EDMD q=4',            'matched'),
     ('CW-EDMD q=4, K=4',    None),
     ('CW-EDMD q=4, K=8',    None),
     ('CW-EDMD q=4, K=16',   None),
 ]
 DUFFING_ROWS = [
-    ('EDMD q=2',            None),
-    ('EDMD q=3',            'matches RHS deg'),
-    ('EDMD q=4',            'higher lift'),
-    ('EDMD q=5',            'higher lift'),
+    ('EDMD q=2',            'low lift'),
+    ('EDMD q=3',            'matched'),
+    ('EDMD q=4',            'matched'),
+    ('EDMD q=5',            'matched'),
     ('CW-EDMD q=3, K=8',    None),
     ('CW-EDMD q=4, K=4',    None),
     ('CW-EDMD q=5, K=4',    None),
@@ -65,11 +65,14 @@ LORENZ_ROWS = [
 ]
 TABLES = {'pendulum': PENDULUM_ROWS, 'duffing': DUFFING_ROWS, 'lorenz': LORENZ_ROWS}
 
-# Headline rows: (display_name, system_csv_key, q, K)
-HEADLINE_ROWS = [
-    ('Pendulum (4, 8)',  'pendulum', 4, 8),
-    ('Duffing  (3, 8)',  'duffing',  3, 8),
-    ('Lorenz   (3, 12)', 'lorenz',   3, 12),
+# One headline row per system. Each row's W/L/T is the paired-Wilcoxon tally
+# across every CW-EDMD $(q, G)$ variant and every configuration in that
+# system's corpus, against EDMD at the matched lift degree $q$.
+HEADLINE_SYSTEMS = [
+    ('Pendulum', 'pendulum', [(4, 4), (4, 8), (4, 16)]),
+    ('Duffing',  'duffing',  [(3, 8), (4, 4), (5, 4)]),
+    ('Lorenz',   'lorenz',   [(2, 5), (2, 12), (2, 20),
+                              (3, 5), (3, 12), (3, 20)]),
 ]
 
 # Per-table tabular structure. ``col_spec`` is the {...} after \begin{tabular};
@@ -79,14 +82,18 @@ TABLE_SPECS = {
     'headline': {
         'col_spec': 'lcccc',
         'header_lines': [
-            r'& \multicolumn{2}{c}{wins} & \multicolumn{2}{c}{ratio} \\',
+            r'& \multicolumn{2}{c}{W / L / T} & \multicolumn{2}{c}{ratio} \\',
             r'\cmidrule(lr){2-3}\cmidrule(lr){4-5}',
-            r'System ($q$, $K$) & 1-step & 5\,s & 1-step & 5\,s \\',
+            r'System & 1-step & 5\,s & 1-step & 5\,s \\',
         ],
     },
     'pendulum': {'col_spec': 'lrrr', 'header_lines': DETAIL_HEADER},
     'duffing':  {'col_spec': 'lrrr', 'header_lines': DETAIL_HEADER},
     'lorenz':   {'col_spec': 'lrrr', 'header_lines': DETAIL_HEADER},
+    'lorenz_per_config': {
+        'col_spec': 'lcc',
+        'header_lines': [r'Configuration & one-step (E/CW) & 5\,s (E/CW) \\'],
+    },
 }
 
 
@@ -118,7 +125,7 @@ def params(name, d):
 def fmt_label(method_name, suffix):
     """``EDMD q=3`` -> ``EDMD $q{=}3$``; ``CW-EDMD q=4, K=8`` -> ``CW-EDMD $q{=}4, K{=}8$``."""
     s = re.sub(r'q=(\d+)', r'$q{=}\1$', method_name)
-    s = re.sub(r'K=(\d+)', r'$K{=}\1$', s)
+    s = re.sub(r'K=(\d+)', r'$G{=}\1$', s)  # rename cluster count K -> G in displayed labels (CSV identifier "K=..." stays unchanged)
     s = s.replace('$, $', ', ')
     if suffix:
         s += f' ({suffix})'
@@ -204,8 +211,8 @@ def build_rows(rows, system, table_rows):
     return out_lines
 
 
-def _wilcoxon_wins(rows, system, q, K, metric):
-    """Per-config paired Wilcoxon CW-EDMD vs EDMD. Returns wins / n."""
+def _wilcoxon_wlt(rows, system, q, K, metric):
+    """Per-config paired Wilcoxon CW-EDMD vs EDMD. Returns (wins, losses, ties)."""
     from scipy import stats
     import numpy as np
     cw = f'CW-EDMD q={q}, K={K}'
@@ -217,39 +224,113 @@ def _wilcoxon_wins(rows, system, q, K, metric):
         if r['method'] == cw: by_cfg_seed_cw[r['config_name']][seed] = float(r['value'])
         elif r['method'] == ed: by_cfg_seed_ed[r['config_name']][seed] = float(r['value'])
     configs = sorted(set(by_cfg_seed_cw) & set(by_cfg_seed_ed))
-    wins = n = 0
+    W = L = T = 0
     for cfg in configs:
         seeds = sorted(set(by_cfg_seed_cw[cfg]) & set(by_cfg_seed_ed[cfg]))
         if len(seeds) < 2: continue
-        n += 1
         cw_v = np.array([by_cfg_seed_cw[cfg][s] for s in seeds])
         ed_v = np.array([by_cfg_seed_ed[cfg][s] for s in seeds])
         try: _, p = stats.wilcoxon(cw_v, ed_v)
-        except ValueError: continue
-        if not np.isfinite(p): continue
-        if p < 0.05 and cw_v.mean() < ed_v.mean(): wins += 1
-    return wins, n
+        except ValueError: p = 1.0
+        if not np.isfinite(p): p = 1.0
+        if p < 0.05 and cw_v.mean() < ed_v.mean(): W += 1
+        elif p < 0.05 and cw_v.mean() > ed_v.mean(): L += 1
+        else: T += 1
+    return W, L, T
 
 
-def _ratio_median(rows, system, q, K, metric):
-    """Ratio of per-method medians: median(EDMD per-cfg-mean) / median(CW per-cfg-mean).
+def _median_of_ratios(rows, system, qK_list, metric):
+    """Aggregated median-of-ratios over the headline corpus for a system:
+    for each $(q, G, \text{config})$ tuple, form the per-config seed-mean ratio
+    $\\text{EDMD}/\\text{CW-EDMD}$; return the median across all such tuples."""
+    ratios = []
+    for q, K in qK_list:
+        cw = f'CW-EDMD q={q}, K={K}'
+        ed = f'EDMD q={q}'
+        by_cfg_cw, by_cfg_ed = defaultdict(list), defaultdict(list)
+        for r in rows:
+            if r['system'] != system or r['metric'] != metric: continue
+            if r['method'] == cw: by_cfg_cw[r['config_name']].append(float(r['value']))
+            elif r['method'] == ed: by_cfg_ed[r['config_name']].append(float(r['value']))
+        for c in set(by_cfg_cw) & set(by_cfg_ed):
+            cw_mean = sum(by_cfg_cw[c]) / len(by_cfg_cw[c])
+            ed_mean = sum(by_cfg_ed[c]) / len(by_cfg_ed[c])
+            if cw_mean > 0:
+                ratios.append(ed_mean / cw_mean)
+    return statistics.median(ratios) if ratios else None
 
-    We use ratio-of-medians (not median-of-ratios) so the headline value matches
-    what a reader gets back-computing from the per-method medians displayed in
-    the §D detail tables. The two statistics can differ when the per-config
-    ratio distribution is skewed (e.g. Duffing one-step: 2.67 vs 3.04)."""
-    cw = f'CW-EDMD q={q}, K={K}'
-    ed = f'EDMD q={q}'
-    by_cfg_cw, by_cfg_ed = defaultdict(list), defaultdict(list)
+
+# Human-readable descriptions for each Lorenz configuration. The raw config
+# names (e.g. ``lorenz_attractor_small_data``) are internal YAML identifiers
+# and should not appear in paper bodies; we map them here to short prose
+# descriptions of what the configuration varies relative to the baseline.
+LORENZ_CONFIG_DESCRIPTION = {
+    'lorenz_attractor_baseline':   'attractor sampling, baseline settings',
+    'lorenz_attractor_heavy_fit':  'attractor sampling, heavy fit budget',
+    'lorenz_attractor_large_data': 'attractor sampling, large training set',
+    'lorenz_attractor_small_data': 'attractor sampling, small training set',
+    'lorenz_dt_fast':              'short integrator step',
+    'lorenz_dt_slow':              'long integrator step',
+    'lorenz_gaussian':             'Gaussian sampling',
+    'lorenz_gaussian_mixture':     'Gaussian-mixture sampling',
+    'lorenz_periodic_noise':       'periodic-noise sampling',
+    'lorenz_trajectory':           'trajectory-ensemble sampling',
+    'lorenz_uniform_narrow_box':   'uniform sampling, narrow box',
+    'lorenz_uniform_wide_box':     'uniform sampling, wide box',
+}
+
+
+def _lorenz_per_config_rows(rows):
+    """Per-configuration breakdown for the Lorenz $(q{=}3, K{=}12)$ headline cell.
+
+    For each of the 12 Lorenz configurations, computes the paired Wilcoxon
+    outcome (W / T / L at p<0.05) and per-config error ratio EDMD/CW-EDMD on
+    both one-step and 5\\,s rollout metrics. This is the Tier-2 per-config
+    table that backs the headline ``$10/12$ on 5\\,s'' claim by making the
+    two non-wins visible (and tying them to specific configurations).
+    """
+    from scipy import stats
+    import numpy as np
+    cw_method = 'CW-EDMD q=3, K=12'
+    ed_method = 'EDMD q=3'
+    by_cfg = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
     for r in rows:
-        if r['system'] != system or r['metric'] != metric: continue
-        if r['method'] == cw: by_cfg_cw[r['config_name']].append(float(r['value']))
-        elif r['method'] == ed: by_cfg_ed[r['config_name']].append(float(r['value']))
-    common = set(by_cfg_cw) & set(by_cfg_ed)
-    if not common: return None
-    med_cw = statistics.median(sum(by_cfg_cw[c]) / len(by_cfg_cw[c]) for c in common)
-    med_ed = statistics.median(sum(by_cfg_ed[c]) / len(by_cfg_ed[c]) for c in common)
-    return (med_ed / med_cw) if med_cw > 0 else None
+        if r['system'] != 'lorenz': continue
+        if r['method'] not in (cw_method, ed_method): continue
+        if r['metric'] not in ('one_step', 'r5s'): continue
+        seed = r.get('seed', '?')
+        by_cfg[r['config_name']][r['metric']][r['method']][seed] = float(r['value'])
+
+    def verdict_cell(cw_d, ed_d):
+        seeds = sorted(set(cw_d) & set(ed_d))
+        if len(seeds) < 2: return ('--', float('nan'))
+        cw_v = np.array([cw_d[s] for s in seeds])
+        ed_v = np.array([ed_d[s] for s in seeds])
+        try: _, p = stats.wilcoxon(cw_v, ed_v)
+        except ValueError: p = float('nan')
+        if not np.isfinite(p): return ('T', float('nan'))
+        if cw_v.mean() <= 0: return ('--', float('nan'))
+        ratio = ed_v.mean() / cw_v.mean()
+        if p < 0.05 and cw_v.mean() < ed_v.mean(): verdict = 'W'
+        elif p < 0.05:                              verdict = 'L'
+        else:                                       verdict = 'T'
+        return (verdict, ratio)
+
+    out_rows = []
+    for cfg in sorted(by_cfg):
+        label = LORENZ_CONFIG_DESCRIPTION.get(cfg, cfg)
+        v1, r1 = verdict_cell(by_cfg[cfg]['one_step'][cw_method],
+                              by_cfg[cfg]['one_step'][ed_method])
+        v5, r5 = verdict_cell(by_cfg[cfg]['r5s'][cw_method],
+                              by_cfg[cfg]['r5s'][ed_method])
+        def fmt(v, r):
+            if v == '--': return '--'
+            if not (isinstance(r, float) and r == r and r > 0): return v
+            if r >= 100: return f'{int(round(r/10)*10)}$\\times$~({v})'
+            if r >= 10:  return f'{int(round(r))}$\\times$~({v})'
+            return f'{r:.1f}$\\times$~({v})'
+        out_rows.append(f"{label} & {fmt(v1, r1)} & {fmt(v5, r5)} \\\\")
+    return out_rows
 
 
 def _fmt_ratio(r):
@@ -266,12 +347,19 @@ def _fmt_ratio(r):
 
 def build_headline_rows(rows):
     out = []
-    for label, system, q, K in HEADLINE_ROWS:
-        w_os, n_os = _wilcoxon_wins(rows, system, q, K, 'one_step')
-        w_r5, n_r5 = _wilcoxon_wins(rows, system, q, K, 'r5s')
-        rat_os = _ratio_median(rows, system, q, K, 'one_step')
-        rat_r5 = _ratio_median(rows, system, q, K, 'r5s')
-        out.append(f"{label} & {w_os}/{n_os} & {w_r5}/{n_r5} & "
+    for label, system, qK_list in HEADLINE_SYSTEMS:
+        W = {'one_step': 0, 'r5s': 0}
+        L = {'one_step': 0, 'r5s': 0}
+        T = {'one_step': 0, 'r5s': 0}
+        for q, K in qK_list:
+            for metric in ('one_step', 'r5s'):
+                w, l, t = _wilcoxon_wlt(rows, system, q, K, metric)
+                W[metric] += w; L[metric] += l; T[metric] += t
+        os_wlt = f"{W['one_step']}/{L['one_step']}/{T['one_step']}"
+        r5_wlt = f"{W['r5s']}/{L['r5s']}/{T['r5s']}"
+        rat_os = _median_of_ratios(rows, system, qK_list, 'one_step')
+        rat_r5 = _median_of_ratios(rows, system, qK_list, 'r5s')
+        out.append(f"{label} & {os_wlt} & {r5_wlt} & "
                    f"{_fmt_ratio(rat_os)} & {_fmt_ratio(rat_r5)} \\\\")
     return out
 
@@ -292,10 +380,12 @@ def emit_tabular(name, body_lines):
 
 def main(argv):
     rows = list(csv.DictReader(open(CSV_PATH)))
-    requested = argv[1:] or ['headline'] + list(TABLES.keys())
+    requested = argv[1:] or ['headline'] + list(TABLES.keys()) + ['lorenz_per_config']
     for name in requested:
         if name == 'headline':
             body_lines = build_headline_rows(rows)
+        elif name == 'lorenz_per_config':
+            body_lines = _lorenz_per_config_rows(rows)
         elif name in TABLES:
             body_lines = build_rows(rows, name, TABLES[name])
         else:

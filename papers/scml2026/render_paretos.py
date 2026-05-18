@@ -116,10 +116,16 @@ def render(system, metric, out_name):
             q_m = re.search(r'q=(\d+)', m.lower())
             if q_m: cw_qs.add(int(q_m.group(1)))
 
+    # Plot only the two families the matched-q story is about: EDMD baseline
+    # and CW-EDMD (the focus). Ablation variants (GMM-EDMD, CW-Taylor,
+    # GMM-Taylor) are covered quantitatively in Table 5 and Appendix E and
+    # would otherwise crowd the figure with five marker shapes for two
+    # conceptually distinct comparisons.
     agg = []
     for m, means in by_method.items():
         fam = family(m)
-        if fam in ('EDMD', 'GMM-EDMD'):
+        if fam not in ('EDMD', 'CW-EDMD'): continue
+        if fam == 'EDMD':
             q_m = re.search(r'q=(\d+)', m.lower())
             if q_m and int(q_m.group(1)) not in cw_qs: continue
         best = min(means)
@@ -150,14 +156,22 @@ def render(system, metric, out_name):
         if not key: key = a['method']
         if key not in dedup or a['mean'] < dedup[key]['mean']:
             dedup[key] = a
+    # Label both EDMD and CW-EDMD frontier points so each marker carries its
+    # ($q$, $K$) configuration. Since the families are at distinct parameter
+    # counts (EDMD has at most one point per $q$; CW-EDMD has one per ($q,K$)
+    # combination), the labels do not collide along the x-axis.
     frontier_label_pts = sorted(dedup.values(), key=lambda a: a['params'])
 
     fig, ax = plt.subplots(figsize=(10.5, 6.7))
 
-    families_present = sorted({a['family'] for a in agg},
+    # Plot only points on the Pareto frontier. Non-frontier configurations
+    # would just clutter the figure: they are dominated by some plotted point
+    # in both parameter count and error, so showing them adds no information
+    # about the tradeoff curve.
+    families_present = sorted({a['family'] for a in pareto_pts},
                               key=lambda f: _FAM_ORDER.get(f, 99))
     for fam in families_present:
-        sub = [a for a in agg if a['family'] == fam]
+        sub = [a for a in pareto_pts if a['family'] == fam]
         if not sub: continue
         xs = np.array([a['params'] for a in sub])
         ys = np.array([a['mean'] for a in sub])
