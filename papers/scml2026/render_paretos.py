@@ -105,29 +105,18 @@ def render(system, metric, out_name):
     for (cfg, m), mean in cfg_method_means.items():
         by_method[m].append(mean)
 
-    # Step 2b: restrict EDMD and GMM-EDMD to lift degrees we also ran CW-EDMD
-    # at. Including higher-q EDMD (e.g. q=8 on Pendulum) when CW-EDMD was only
-    # run at q=2,4 would render an unfair cross-degree comparison: the paper's
-    # claim is matched-degree CW-EDMD-q beats EDMD-q, so the figure should
-    # show only the lift degrees where that comparison is actually defined.
-    cw_qs = set()
-    for m in by_method:
-        if family(m) == 'CW-EDMD':
-            q_m = re.search(r'q=(\d+)', m.lower())
-            if q_m: cw_qs.add(int(q_m.group(1)))
-
     # Plot only the two families the matched-q story is about: EDMD baseline
     # and CW-EDMD (the focus). Ablation variants (GMM-EDMD, CW-Taylor,
     # GMM-Taylor) are covered quantitatively in Table 5 and Appendix E and
     # would otherwise crowd the figure with five marker shapes for two
     # conceptually distinct comparisons.
+    # All EDMD lift degrees are shown — including degrees beyond the CW-EDMD
+    # sweep (e.g. q=6, q=8 on pendulum) — so the figure exposes the full
+    # EDMD-vs-CW-EDMD parameter tradeoff rather than just the matched-q anchors.
     agg = []
     for m, means in by_method.items():
         fam = family(m)
         if fam not in ('EDMD', 'CW-EDMD'): continue
-        if fam == 'EDMD':
-            q_m = re.search(r'q=(\d+)', m.lower())
-            if q_m and int(q_m.group(1)) not in cw_qs: continue
         best = min(means)
         p, ps = params(m, d)
         if p is None or not np.isfinite(best) or best <= 0: continue
@@ -160,18 +149,33 @@ def render(system, metric, out_name):
     # ($q$, $K$) configuration. Since the families are at distinct parameter
     # counts (EDMD has at most one point per $q$; CW-EDMD has one per ($q,K$)
     # combination), the labels do not collide along the x-axis.
-    frontier_label_pts = sorted(dedup.values(), key=lambda a: a['params'])
+    # Also label any EDMD points that are plotted but dominated (not on the
+    # frontier) — without their $q$ tag the markers would be ambiguous in the
+    # legend, and these are the matched-degree baselines for the CW-EDMD rows.
+    label_pts = list(dedup.values())
+    labeled_keys = {(a['family'], a['method']) for a in label_pts}
+    for a in agg:
+        if a['family'] != 'EDMD': continue
+        if (a['family'], a['method']) in labeled_keys: continue
+        if not a['param_str']: continue
+        label_pts.append(a)
+    frontier_label_pts = sorted(label_pts, key=lambda a: a['params'])
 
     fig, ax = plt.subplots(figsize=(10.5, 6.7))
 
-    # Plot only points on the Pareto frontier. Non-frontier configurations
-    # would just clutter the figure: they are dominated by some plotted point
-    # in both parameter count and error, so showing them adds no information
-    # about the tradeoff curve.
-    families_present = sorted({a['family'] for a in pareto_pts},
+    # CW-EDMD: only frontier points, to keep the tradeoff curve uncluttered.
+    # EDMD: every available point (q=2, 4, 6, 8 on pendulum) regardless of
+    # whether it sits on the frontier — at matched q the EDMD baseline is the
+    # comparison anchor for the corresponding CW-EDMD row, so dominated EDMD
+    # points still carry information about the per-q gap to CW-EDMD.
+    pareto_keys = {(a['family'], a['method']) for a in pareto_pts}
+    plot_pts = list(pareto_pts) + [a for a in agg
+                                   if a['family'] == 'EDMD'
+                                   and (a['family'], a['method']) not in pareto_keys]
+    families_present = sorted({a['family'] for a in plot_pts},
                               key=lambda f: _FAM_ORDER.get(f, 99))
     for fam in families_present:
-        sub = [a for a in pareto_pts if a['family'] == fam]
+        sub = [a for a in plot_pts if a['family'] == fam]
         if not sub: continue
         xs = np.array([a['params'] for a in sub])
         ys = np.array([a['mean'] for a in sub])
