@@ -139,8 +139,21 @@ root.
 (CUDA, MPS, CPU). Device is inferred from the input tensors — pass
 `X.to('cuda')` or `X.to('mps')` and use `make_hp_gpu` in place of `make_hp`.
 
-**pykoopman patch:** if `pykoopman` is installed, the package auto-patches a
-small sklearn-compat issue on first import. No action needed.
+**pykoopman patch:** pykoopman's `Polynomial` observable is incompatible with
+sklearn ≥ 1.0 (`n_input_features_` was renamed to `n_features_in_`, but
+pykoopman's `Polynomial.transform()` still calls the old name via
+`check_is_fitted`). On first `import residual_aware_clustering`, the package
+auto-patches the installed pykoopman in-place. If you see a
+`Polynomial.transform()` error from `check_is_fitted` (typically because
+pykoopman was imported before our package), apply the patch manually and
+verify:
+
+```bash
+python patches/fix_pykoopman_sklearn.py
+```
+
+This is also what `./setup.sh` runs as its final step. The patch is
+idempotent — safe to re-run.
 
 ---
 
