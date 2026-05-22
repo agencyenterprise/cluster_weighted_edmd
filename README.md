@@ -118,6 +118,7 @@ is [uv](https://github.com/astral-sh/uv) but plain `pip` works.
 ```bash
 # Option 1: uv (recommended)
 uv venv
+source .venv/bin/activate
 uv pip install -e .
 uv pip install -e ".[pykoopman]"   # optional: pykoopman/pydmd baselines
 
@@ -127,9 +128,14 @@ source .venv/bin/activate
 pip install -e .
 pip install -e ".[pykoopman]"
 
-# Option 3: scripted (uses pip)
+# Option 3: scripted (requires an activated venv; see Option 1 or 2 above)
 ./setup.sh
 ```
+
+The venv must be active (`source .venv/bin/activate`) for `setup.sh`, the
+`run_*.sh` scripts, and any `python -m validation.*` command. The `uv pip
+install` steps themselves auto-detect `./.venv/` and work without activation,
+but everything downstream resolves `python` from `$PATH`.
 
 The package import name is `residual_aware_clustering`. After install, all
 `run_*.sh` scripts and `python -m validation.*` commands work from the repo

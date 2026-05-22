@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")"
 
@@ -7,17 +7,20 @@ echo "============================================================"
 echo "  Setting up residual_aware_clustering"
 echo "============================================================"
 
+
+python3 -m ensurepip --upgrade >/dev/null
+
 echo ""
 echo "[1/3] Installing package in editable mode..."
-pip install -e .
+python3 -m pip install -e .
 
 echo ""
 echo "[2/3] Installing pykoopman extras..."
-pip install -e ".[pykoopman]"
+python3 -m pip install -e ".[pykoopman]"
 
 echo ""
 echo "[3/3] Patching pykoopman for sklearn compatibility..."
-python patches/fix_pykoopman_sklearn.py
+python3 patches/fix_pykoopman_sklearn.py
 
 echo ""
 echo "============================================================"
